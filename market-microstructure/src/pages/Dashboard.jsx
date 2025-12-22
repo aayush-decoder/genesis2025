@@ -1,14 +1,16 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import DashboardLayout from "../layout/DashboardLayout";
 import "../styles/dashboard.css";
 
 export default function Dashboard() {
   const [data, setData] = useState([]);
   const [latestSnapshot, setLatestSnapshot] = useState(null);
+  const wsRef = useRef(null);
 
   useEffect(() => {
     // WebSocket Connection
     const ws = new WebSocket("ws://localhost:8000/ws");
+    wsRef.current = ws;
 
     ws.onopen = () => {
       console.log("Connected to Market Data Feed");
@@ -44,5 +46,15 @@ export default function Dashboard() {
     };
   }, []);
 
-  return <DashboardLayout data={data} latestSnapshot={latestSnapshot} />;
+  const handleOrder = (side, quantity) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+            type: "ORDER",
+            side: side,
+            quantity: quantity
+        }));
+    }
+  };
+
+  return <DashboardLayout data={data} latestSnapshot={latestSnapshot} onOrder={handleOrder} />;
 }

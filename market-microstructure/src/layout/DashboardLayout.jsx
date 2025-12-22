@@ -1,12 +1,12 @@
 import { useState } from "react";
 import ControlsBar from "../components/ControlsBar";
-import PriceChart from "../components/PriceChart";
-import Heatmap from "../components/Heatmap";
+import CanvasPriceChart from "../components/CanvasPriceChart";
+import CanvasHeatmap from "../components/CanvasHeatmap";
 import FeaturePanel from "../components/FeaturePanel";
 import SnapshotInspector from "../components/SnapshotInspector";
 import PriceLadder from "../components/PriceLadder";
 
-export default function DashboardLayout({ data, latestSnapshot }) {
+export default function DashboardLayout({ data, latestSnapshot, onOrder }) {
   const [hoveredSnapshot, setHoveredSnapshot] = useState(null);
 
   // If user is hovering over heatmap, show that historical snapshot.
@@ -15,13 +15,13 @@ export default function DashboardLayout({ data, latestSnapshot }) {
 
   return (
     <div className="container">
-      <ControlsBar />
+      <ControlsBar onOrder={onOrder} />
 
       <div className="content">
         {/* LEFT 75% */}
         <div className="main">
-          <PriceChart data={data} />
-          <Heatmap data={data} onHover={setHoveredSnapshot} />
+          <CanvasPriceChart data={data} height={250} />
+          <CanvasHeatmap data={data} height={250} onHover={setHoveredSnapshot} />
           <FeaturePanel 
             title="Order Book Imbalance" 
             data={data} 
@@ -35,6 +35,13 @@ export default function DashboardLayout({ data, latestSnapshot }) {
             dataKey="spread" 
             color="#f472b6" 
             isSpread={true}
+          />
+          <FeaturePanel 
+            title="V-PIN (Toxic Flow)" 
+            data={data} 
+            dataKey="vpin" 
+            color="#ef4444" 
+            threshold={0.4}
           />
         </div>
 
