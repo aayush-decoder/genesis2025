@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import logging
 from typing import List
+import os
+import pandas as pd
 
 from analytics import AnalyticsEngine, db_row_to_snapshot, MarketSimulator
 from replay import ReplayController
@@ -14,6 +16,7 @@ import threading
 import queue
 import time
 import json
+from collections import defaultdict, deque
 
 def sanitize(obj):
     if isinstance(obj, dict):
@@ -35,6 +38,57 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+# --------------------------------------------------
+# Monitoring & Metrics
+# --------------------------------------------------
+class MetricsCollector:
+    def __init__(self):
+        self.total_snapshots_processed = 0
+        self.total_errors = 0
+        self.total_websocket_messages_sent = 0
+        self.error_counts = defaultdict(int)
+        self.latency_samples = deque(maxlen=1000)  # Rolling window
+        self.processing_times = deque(maxlen=1000)
+        self.last_snapshot_time = None
+        self.start_time = time.time()
+        
+    def record_snapshot(self, latency_ms: float, processing_time_ms: float):
+        self.total_snapshots_processed += 1
+        self.latency_samples.append(latency_ms)
+        self.processing_times.append(processing_time_ms)
+        self.last_snapshot_time = time.time()
+    
+    def record_error(self, error_type: str):
+        self.total_errors += 1
+        self.error_counts[error_type] += 1
+        
+    def record_websocket_send(self):
+        self.total_websocket_messages_sent += 1
+    
+    def get_stats(self):
+        uptime = time.time() - self.start_time
+        avg_latency = sum(self.latency_samples) / len(self.latency_samples) if self.latency_samples else 0
+        avg_processing = sum(self.processing_times) / len(self.processing_times) if self.processing_times else 0
+        p95_latency = sorted(self.latency_samples)[int(len(self.latency_samples) * 0.95)] if len(self.latency_samples) > 20 else 0
+        p99_latency = sorted(self.latency_samples)[int(len(self.latency_samples) * 0.99)] if len(self.latency_samples) > 100 else 0
+        
+        return {
+            "uptime_seconds": round(uptime, 1),
+            "total_snapshots_processed": self.total_snapshots_processed,
+            "total_errors": self.total_errors,
+            "total_websocket_messages_sent": self.total_websocket_messages_sent,
+            "snapshots_per_second": round(self.total_snapshots_processed / uptime, 2) if uptime > 0 else 0,
+            "avg_latency_ms": round(avg_latency, 2),
+            "p95_latency_ms": round(p95_latency, 2),
+            "p99_latency_ms": round(p99_latency, 2),
+            "avg_processing_time_ms": round(avg_processing, 2),
+            "error_breakdown": dict(self.error_counts),
+            "last_snapshot_ago_seconds": round(time.time() - self.last_snapshot_time, 1) if self.last_snapshot_time else None,
+            "mode": MODE
+        }
+
+metrics = MetricsCollector()
 
 # --------------------------------------------------
 # FastAPI App
@@ -82,8 +136,10 @@ class ConnectionManager:
         for ws in self.active_connections:
             try:
                 await ws.send_json(message)
-            except Exception:
-                pass
+                metrics.record_websocket_send()
+            except Exception as e:
+                metrics.record_error("websocket_broadcast_failed")
+                logger.warning(f"Broadcast failed to client: {e}")
 
 
 manager = ConnectionManager()
@@ -97,17 +153,25 @@ def simulation_loop():
     while True:
         try:
             if controller.state == "PLAYING":
+                start_time = time.time()
                 raw_snapshot = simulator.generate_snapshot()
+                
+                processing_start = time.time()
                 processed_snapshot = engine.process_snapshot(raw_snapshot)
+                processing_time = (time.time() - processing_start) * 1000
                 
                 # Feature I: Feedback Loop
                 if 'ofi' in processed_snapshot:
                     simulator.update_ofi(processed_snapshot['ofi'])
                 
                 simulation_queue.put(processed_snapshot)
+                
+                total_latency = (time.time() - start_time) * 1000
+                metrics.record_snapshot(total_latency, processing_time)
             
             time.sleep(0.1 / controller.speed)
         except Exception as e:
+            metrics.record_error("simulation_loop_error")
             logger.error(f"Simulation error: {e}")
             time.sleep(1)
 
@@ -169,6 +233,8 @@ async def csv_replay_loop():
                 asks = []
                 
                 try:
+                    start_time = time.time()
+                    
                     for i in range(0, 20, 2):
                         bids.append([float(row[i]), float(row[i+1])])
                     
@@ -185,7 +251,10 @@ async def csv_replay_loop():
                         "mid_price": round(mid_price, 2)
                     }
                     
+                    processing_start = time.time()
                     processed = engine.process_snapshot(snapshot)
+                    processing_time = (time.time() - processing_start) * 1000
+                    
                     processed = sanitize(processed)
                     
                     data_buffer.append(processed)
@@ -193,13 +262,19 @@ async def csv_replay_loop():
                         data_buffer.pop(0)
                     
                     await manager.broadcast(processed)
+                    
+                    total_latency = (time.time() - start_time) * 1000
+                    metrics.record_snapshot(total_latency, processing_time)
+                    
                     await asyncio.sleep(0.1 / controller.speed)
                     
                 except Exception as e:
+                    metrics.record_error("csv_row_processing_error")
                     logger.error(f"Error processing CSV row: {e}")
                     continue
                     
     except Exception as e:
+        metrics.record_error("csv_replay_fatal_error")
         logger.error(f"CSV Replay Error: {e}")
         MODE = "SIMULATION"
         threading.Thread(target=simulation_loop, daemon=True).start()
@@ -268,9 +343,14 @@ async def replay_loop():
 
         controller.cursor_ts = row["ts"]
 
+        start_time = time.time()
+        
         # Analytics processing
         snapshot = db_row_to_snapshot(row)
+        
+        processing_start = time.time()
         processed = engine.process_snapshot(snapshot)
+        processing_time = (time.time() - processing_start) * 1000
 
         processed = sanitize(processed)
 
@@ -279,6 +359,10 @@ async def replay_loop():
             data_buffer.pop(0)
 
         await manager.broadcast(processed)
+        
+        total_latency = (time.time() - start_time) * 1000
+        metrics.record_snapshot(total_latency, processing_time)
+        
         # Replay speed (250 ms base)
         await asyncio.sleep(0.25 / controller.speed)
 
@@ -318,6 +402,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         simulator.place_order(side, quantity)
                         logger.info(f"Order placed: {side} {quantity}")
                 except Exception as e:
+                    metrics.record_error("order_processing_error")
                     logger.error(f"Error processing order: {e}")
 
     except WebSocketDisconnect:
@@ -384,3 +469,58 @@ def get_latest_snapshot():
     if not data_buffer:
         return {}
     return data_buffer[-1]
+
+# --------------------------------------------------
+# Monitoring Endpoints
+# --------------------------------------------------
+@app.get("/metrics")
+def get_metrics():
+    """Prometheus-compatible metrics endpoint."""
+    stats = metrics.get_stats()
+    return stats
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint for load balancers."""
+    stats = metrics.get_stats()
+    
+    # Check if system is healthy
+    is_healthy = True
+    issues = []
+    
+    # Check 1: Are we processing data?
+    if stats["last_snapshot_ago_seconds"] and stats["last_snapshot_ago_seconds"] > 10:
+        is_healthy = False
+        issues.append(f"No data processed in {stats['last_snapshot_ago_seconds']}s")
+    
+    # Check 2: Error rate
+    if stats["total_snapshots_processed"] > 100:
+        error_rate = stats["total_errors"] / stats["total_snapshots_processed"]
+        if error_rate > 0.05:  # More than 5% errors
+            is_healthy = False
+            issues.append(f"High error rate: {error_rate*100:.1f}%")
+    
+    # Check 3: Latency
+    if stats["p99_latency_ms"] > 1000:  # P99 > 1 second
+        issues.append(f"High P99 latency: {stats['p99_latency_ms']}ms")
+    
+    return {
+        "status": "healthy" if is_healthy else "degraded",
+        "issues": issues,
+        "mode": MODE,
+        "uptime": stats["uptime_seconds"],
+        "snapshots_processed": stats["total_snapshots_processed"]
+    }
+
+@app.get("/metrics/dashboard")
+def metrics_dashboard():
+    """Detailed metrics for monitoring dashboard."""
+    stats = metrics.get_stats()
+    
+    # Add additional context
+    stats["active_websocket_connections"] = len(manager.active_connections)
+    stats["buffer_size"] = len(data_buffer)
+    stats["controller_state"] = controller.state
+    stats["replay_speed"] = controller.speed
+    
+    return stats
