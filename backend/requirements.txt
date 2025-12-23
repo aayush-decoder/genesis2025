@@ -7,3 +7,7 @@ websockets
 scikit-learn
 sqlalchemy 
 psycopg2-binary
+pytest
+pytest-asyncio
+pytest-cov
+httpx
