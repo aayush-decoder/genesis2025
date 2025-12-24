@@ -11,13 +11,32 @@ import SpoofingDetector from "../components/SpoofingDetector";
 import LiquidityGapChart from "../components/LiquidityGapChart";
 import SpoofingRiskChart from "../components/SpoofingRiskChart";
 
-export default function DashboardLayout({ data, latestSnapshot }) {
+export default function DashboardLayout({ 
+  data, 
+  latestSnapshot,
+  onPlay,
+  onPause,
+  onResume,
+  onStop,
+  onSpeed,
+  replayState = "STOPPED",
+  currentSpeed = 1
+}) {
   const [hoveredSnapshot, setHoveredSnapshot] = useState(null);
   const activeSnapshot = hoveredSnapshot || latestSnapshot;
 
   return (
     <div className="dashboard-shell">
-      <ControlsBar />
+      <ControlsBar 
+        onPlay={onPlay}
+        onPause={onPause}
+        onResume={onResume}
+        onStop={onStop}
+        onSpeed={onSpeed}
+        isPlaying={replayState === "PLAYING"}
+        isPaused={replayState === "PAUSED"}
+        currentSpeed={currentSpeed}
+      />
 
       <div className="dashboard-grid">
         {/* Left Column */}

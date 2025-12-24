@@ -10,6 +10,8 @@ const MAX_BUFFER = 100;
 export default function Dashboard() {
   const [data, setData] = useState([]);
   const [latestSnapshot, setLatestSnapshot] = useState(null);
+  const [replayState, setReplayState] = useState("PLAYING"); // Track state locally
+  const [currentSpeed, setCurrentSpeed] = useState(1);
   const wsRef = useRef(null);
 
   // -------------------------------
@@ -47,7 +49,7 @@ export default function Dashboard() {
     };
 
     ws.onclose = () => {
-      console.log(" Disconnected from Market Replay Feed");
+      console.log("❌ Disconnected from Market Replay Feed");
     };
 
     ws.onerror = (err) => {
@@ -66,12 +68,37 @@ export default function Dashboard() {
   // -------------------------------
   // Replay Controls (REST → Backend)
   // -------------------------------
-  const controlReplay = (path) => {
+  const controlReplay = (path, newState) => {
     fetch(`${BACKEND_HTTP}/replay/${path}`, {
       method: "POST",
-    }).catch((err) => {
-      console.error("Replay control error:", err);
-    });
+    })
+      .then(() => {
+        if (newState) setReplayState(newState);
+      })
+      .catch((err) => {
+        console.error("Replay control error:", err);
+      });
+  };
+
+  const handlePlay = () => {
+    controlReplay("start", "PLAYING");
+  };
+
+  const handlePause = () => {
+    controlReplay("pause", "PAUSED");
+  };
+
+  const handleResume = () => {
+    controlReplay("resume", "PLAYING");
+  };
+
+  const handleStop = () => {
+    controlReplay("stop", "STOPPED");
+  };
+
+  const handleSpeed = (speed) => {
+    setCurrentSpeed(speed);
+    controlReplay(`speed/${speed}`);
   };
 
   // -------------------------------
@@ -81,11 +108,13 @@ export default function Dashboard() {
     <DashboardLayout
       data={data}
       latestSnapshot={latestSnapshot}
-      onPlay={() => controlReplay("start")}
-      onPause={() => controlReplay("pause")}
-      onResume={() => controlReplay("resume")}
-      onStop={() => controlReplay("stop")}
-      onSpeed={(v) => controlReplay(`speed/${v}`)}
+      onPlay={handlePlay}
+      onPause={handlePause}
+      onResume={handleResume}
+      onStop={handleStop}
+      onSpeed={handleSpeed}
+      replayState={replayState}
+      currentSpeed={currentSpeed}
     />
   );
 }
