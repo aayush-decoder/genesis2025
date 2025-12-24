@@ -358,6 +358,15 @@ class AnalyticsEngine:
         self.current_bucket_buy = 0
         self.current_bucket_sell = 0
         self.bucket_history = deque(maxlen=50) # Rolling window of Order Imbalances (OI)
+        
+        # Liquidity Gap Tracking
+        self.gap_history = deque(maxlen=100)
+        self.gap_severity_history = deque(maxlen=100)
+        
+        # Spoofing Risk Tracking
+        self.spoofing_risk_history = deque(maxlen=100)
+        self.volume_volatility_history = deque(maxlen=20)
+        self.spoofing_events_count = 0
 
         # Feature C, D, E State
         self.prev_bids = []
@@ -562,19 +571,66 @@ class AnalyticsEngine:
         # Anomalies
         anomalies = []
         
-        # --- Feature C: Liquidity Gaps ---
+        # Initialize variables for metrics
         gaps = []
-        for i in range(min(5, len(bids))): 
-            if bids[i][1] < 0.5: # Threshold for "tiny" liquidity
+        gap_severity_score = 0
+        spoofing_risk = 0
+        volume_volatility = 0
+        liquidity_gaps = []  # For detailed gap analysis
+        
+        # --- Feature C: Liquidity Gaps ---
+        gap_levels = []
+        total_gap_volume = 0
+        
+        for i in range(min(10, len(bids))): 
+            if bids[i][1] < 50:  # Threshold for "tiny" liquidity (adjusted for realistic volumes)
                 gaps.append(f"Bid L{i+1}")
-            if asks[i][1] < 0.5:
+                gap_levels.append(i+1)
+                total_gap_volume += bids[i][1]
+                # Weight gaps closer to top of book more heavily
+                gap_severity_score += (10 - i) * 2
+                
+                # Add detailed gap info for visualization
+                risk_score = min(100, (10 - i) * 15 + (50 - bids[i][1]) * 2)
+                liquidity_gaps.append({
+                    "price": bids[i][0],
+                    "volume": bids[i][1],
+                    "side": "bid",
+                    "level": i + 1,
+                    "risk_score": risk_score
+                })
+                
+            if asks[i][1] < 50:
                 gaps.append(f"Ask L{i+1}")
+                gap_levels.append(i+1)
+                total_gap_volume += asks[i][1]
+                gap_severity_score += (10 - i) * 2
+                
+                # Add detailed gap info for visualization
+                risk_score = min(100, (10 - i) * 15 + (50 - asks[i][1]) * 2)
+                liquidity_gaps.append({
+                    "price": asks[i][0],
+                    "volume": asks[i][1],
+                    "side": "ask",
+                    "level": i + 1,
+                    "risk_score": risk_score
+                })
+        
+        # Track gap metrics for graphing
+        gap_count = len(gaps)
+        self.gap_history.append(gap_count)
+        self.gap_severity_history.append(gap_severity_score)
         
         if gaps:
-             anomalies.append({
+            severity = "critical" if len(gaps) > 6 or any(level <= 2 for level in gap_levels) else "high" if len(gaps) > 3 else "medium"
+            anomalies.append({
                 "type": "LIQUIDITY_GAP",
-                "severity": "medium",
-                "message": f"Liquidity Gaps: {', '.join(gaps)}"
+                "severity": severity,
+                "message": f"Liquidity Gaps at {len(gaps)} levels: {', '.join(gaps[:5])}{'...' if len(gaps) > 5 else ''}",
+                "gap_count": len(gaps),
+                "affected_levels": gap_levels,
+                "total_gap_volume": total_gap_volume,
+                "gap_severity_score": gap_severity_score
             })
 
         # --- Feature E: Depth Shocks ---
@@ -598,26 +654,67 @@ class AnalyticsEngine:
         current_l1_vol = (bids[0][1] + asks[0][1]) / 2
         self.avg_l1_vol = (1 - self.alpha) * self.avg_l1_vol + self.alpha * current_l1_vol
         
+        # Track volume volatility for spoofing risk calculation
+        self.volume_volatility_history.append(current_l1_vol)
+        volume_volatility = 0
+        if len(self.volume_volatility_history) > 5:
+            vol_array = np.array(list(self.volume_volatility_history))
+            volume_volatility = np.std(vol_array) / (np.mean(vol_array) + 1e-6)
+        
+        spoofing_detected = False
+        spoofing_side = None
+        volume_ratio = 0
+        spoofing_risk = 0
+        
         if self.prev_bids and len(self.prev_bids) > 0:
             prev_L1_vol = self.prev_bids[0][1]
             curr_L1_vol = bids[0][1]
-            # If volume was large (> 2x Average) and is now small (< 0.2x Average) AND price is same
-            if prev_L1_vol > (2 * self.avg_l1_vol) and curr_L1_vol < (0.2 * self.avg_l1_vol) and abs(bids[0][0] - self.prev_bids[0][0]) < 0.001:
-                 anomalies.append({
-                    "type": "SPOOFING",
-                    "severity": "critical",
-                    "message": "Potential Spoofing (Large Bid Cancelled)"
-                })
+            # If volume was large (> 3x Average) and is now small (< 0.3x Average) AND price is same
+            if prev_L1_vol > (3 * self.avg_l1_vol) and curr_L1_vol < (0.3 * self.avg_l1_vol) and abs(bids[0][0] - self.prev_bids[0][0]) < 0.001:
+                spoofing_detected = True
+                spoofing_side = "BID"
+                volume_ratio = prev_L1_vol / max(curr_L1_vol, 1)
+                self.spoofing_events_count += 1
                 
         if self.prev_asks and len(self.prev_asks) > 0:
             prev_L1_vol = self.prev_asks[0][1]
             curr_L1_vol = asks[0][1]
-            if prev_L1_vol > (2 * self.avg_l1_vol) and curr_L1_vol < (0.2 * self.avg_l1_vol) and abs(asks[0][0] - self.prev_asks[0][0]) < 0.001:
-                 anomalies.append({
-                    "type": "SPOOFING",
-                    "severity": "critical",
-                    "message": "Potential Spoofing (Large Ask Cancelled)"
-                })
+            if prev_L1_vol > (3 * self.avg_l1_vol) and curr_L1_vol < (0.3 * self.avg_l1_vol) and abs(asks[0][0] - self.prev_asks[0][0]) < 0.001:
+                spoofing_detected = True
+                spoofing_side = "ASK"
+                volume_ratio = prev_L1_vol / max(curr_L1_vol, 1)
+                self.spoofing_events_count += 1
+        
+        # Calculate spoofing risk probability (0-100%)
+        # Based on: volume volatility, recent events, order size patterns
+        base_risk = min(volume_volatility * 50, 30)  # Volume volatility component
+        event_risk = min(self.spoofing_events_count * 5, 40)  # Recent events component
+        size_risk = 0
+        
+        # Check for suspicious large orders at L1
+        if current_l1_vol > (4 * self.avg_l1_vol):
+            size_risk = 30
+        elif current_l1_vol > (2 * self.avg_l1_vol):
+            size_risk = 15
+            
+        spoofing_risk = min(base_risk + event_risk + size_risk, 100)
+        
+        # Decay event count over time
+        if len(self.spoofing_risk_history) % 10 == 0:
+            self.spoofing_events_count = max(0, self.spoofing_events_count - 1)
+        
+        self.spoofing_risk_history.append(spoofing_risk)
+        
+        if spoofing_detected:
+            anomalies.append({
+                "type": "SPOOFING",
+                "severity": "critical",
+                "message": f"Potential Spoofing: Large {spoofing_side} order cancelled (Volume dropped {volume_ratio:.1f}x)",
+                "side": spoofing_side,
+                "volume_ratio": volume_ratio,
+                "price_level": bids[0][0] if spoofing_side == "BID" else asks[0][0],
+                "spoofing_risk": spoofing_risk
+            })
 
         # Update State
         self.prev_bids = bids
@@ -672,6 +769,13 @@ class AnalyticsEngine:
                 'severity': 'medium',
                 'message': f'Slow processing: {processing_time_ms:.1f}ms'
             })
+        
+        # Add graphing metrics
+        snapshot['gap_count'] = len(gaps)
+        snapshot['gap_severity_score'] = gap_severity_score
+        snapshot['spoofing_risk'] = spoofing_risk
+        snapshot['volume_volatility'] = volume_volatility
+        snapshot['liquidity_gaps'] = liquidity_gaps  # Add detailed gap data for visualization
         
         return snapshot
     

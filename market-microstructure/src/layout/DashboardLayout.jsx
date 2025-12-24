@@ -6,6 +6,10 @@ import FeaturePanel from "../components/FeaturePanel";
 import SnapshotInspector from "../components/SnapshotInspector";
 import PriceLadder from "../components/PriceLadder";
 import SignalMonitor from "../components/SignalMonitor";
+import LiquidityGapMonitor from "../components/LiquidityGapMonitor";
+import SpoofingDetector from "../components/SpoofingDetector";
+import LiquidityGapChart from "../components/LiquidityGapChart";
+import SpoofingRiskChart from "../components/SpoofingRiskChart";
 
 export default function DashboardLayout({ data, latestSnapshot }) {
   const [hoveredSnapshot, setHoveredSnapshot] = useState(null);
@@ -33,6 +37,22 @@ export default function DashboardLayout({ data, latestSnapshot }) {
           <div className="features-scroll">
             <div className="panel">
               <SignalMonitor snapshot={latestSnapshot} />
+            </div>
+
+            <div className="panel">
+              <LiquidityGapChart data={data} />
+            </div>
+
+            <div className="panel">
+              <SpoofingRiskChart data={data} />
+            </div>
+
+            <div className="panel">
+              <LiquidityGapMonitor snapshot={latestSnapshot} data={data} />
+            </div>
+
+            <div className="panel">
+              <SpoofingDetector snapshot={latestSnapshot} data={data} />
             </div>
 
             <div className="panel">

@@ -466,9 +466,48 @@ def get_anomalies():
                     "timestamp": snap.get("timestamp"),
                     "type": a.get("type"),
                     "severity": a.get("severity"),
-                    "message": a.get("message")
+                    "message": a.get("message"),
+                    **{k: v for k, v in a.items() if k not in ["type", "severity", "message"]}
                 })
     return anomalies
+
+@app.get("/anomalies/liquidity-gaps")
+def get_liquidity_gaps():
+    """Get recent liquidity gap events with detailed information."""
+    gaps = []
+    for snap in data_buffer:
+        if "anomalies" in snap:
+            for a in snap["anomalies"]:
+                if a.get("type") == "LIQUIDITY_GAP":
+                    gaps.append({
+                        "timestamp": snap.get("timestamp"),
+                        "severity": a.get("severity"),
+                        "message": a.get("message"),
+                        "gap_count": a.get("gap_count", 0),
+                        "affected_levels": a.get("affected_levels", []),
+                        "total_gap_volume": a.get("total_gap_volume", 0),
+                        "mid_price": snap.get("mid_price")
+                    })
+    return gaps
+
+@app.get("/anomalies/spoofing")
+def get_spoofing_events():
+    """Get recent spoofing-like behavior events."""
+    spoofing = []
+    for snap in data_buffer:
+        if "anomalies" in snap:
+            for a in snap["anomalies"]:
+                if a.get("type") == "SPOOFING":
+                    spoofing.append({
+                        "timestamp": snap.get("timestamp"),
+                        "severity": a.get("severity"),
+                        "message": a.get("message"),
+                        "side": a.get("side"),
+                        "volume_ratio": a.get("volume_ratio", 0),
+                        "price_level": a.get("price_level"),
+                        "mid_price": snap.get("mid_price")
+                    })
+    return spoofing
 
 @app.get("/alerts/history")
 def get_alert_history(limit: int = 100):
