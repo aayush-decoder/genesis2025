@@ -116,6 +116,12 @@ simulation_queue = queue.Queue()
 MODE = "UNKNOWN" # "REPLAY" or "SIMULATION"
 
 # --------------------------------------------------
+# DB Replay Buffer (LATENCY FIX #1)
+# --------------------------------------------------
+REPLAY_BATCH_SIZE = 500
+replay_buffer = deque()
+
+# --------------------------------------------------
 # WebSocket Connection Manager
 # --------------------------------------------------
 class ConnectionManager:
@@ -292,20 +298,12 @@ async def replay_loop():
         MODE = "REPLAY"
         logger.info("Connected to DB. Starting Replay Loop.")
         
-        # Prepare common queries for better performance
-        QUERY_FIRST = """
-            SELECT *
-            FROM l2_orderbook
-            ORDER BY ts
-            LIMIT 1
-        """
-        
-        QUERY_NEXT = """
+        QUERY_BATCH = """
             SELECT *
             FROM l2_orderbook
             WHERE ts > %s
             ORDER BY ts
-            LIMIT 1
+            LIMIT %s
         """
         
     except Exception as e:
@@ -335,18 +333,22 @@ async def replay_loop():
             await asyncio.sleep(0.1)
             continue
 
-        if controller.cursor_ts is None:
-            cur.execute(QUERY_FIRST)
-        else:
-            cur.execute(QUERY_NEXT, (controller.cursor_ts,))
+        # Refill buffer if empty
+        if not replay_buffer:
+            last_ts = controller.cursor_ts or datetime.min
+            cur.execute(QUERY_BATCH, (last_ts, REPLAY_BATCH_SIZE))
+            rows = cur.fetchall()
 
-        row = cur.fetchone()
+            if not rows:
+                logger.info("Replay finished")
+                controller.state = "STOPPED"
+                continue
 
-        if row is None:
-            logger.info("Replay finished")
-            controller.state = "STOPPED"
-            continue
+            for r in rows:
+                replay_buffer.append(r)
 
+        # Pop next row from buffer
+        row = replay_buffer.popleft()
         controller.cursor_ts = row["ts"]
 
         start_time = time.time()
