@@ -5,7 +5,7 @@ export default function SignalMonitor({ snapshot }) {
 
   if (!snapshot || !snapshot.anomalies || snapshot.anomalies.length === 0) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
         <span style={{ color: '#4b5563' }}>No Active Signals</span>
       </div>
     );

@@ -159,6 +159,7 @@ export default function DashboardLayout({
         padding: "16px 96px",
         gap: "12px",
         boxSizing: "border-box",
+        alignItems: "center",
       }}
     >
       {/* Left Column */}
