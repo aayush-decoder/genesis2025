@@ -534,6 +534,28 @@ def set_speed(value: int):
     logger.info(f"Replay speed set to {controller.speed}x")
     return {"speed": controller.speed}
 
+@app.post("/replay/goback/{seconds}")
+def go_back(seconds: float):
+    """Rewind replay by specified seconds."""
+    try:
+        if MODE != "REPLAY" or not controller.cursor_ts:
+            return {"status": "error", "message": "Can only go back in DB replay mode"}
+        
+        # Calculate target timestamp
+        from datetime import timedelta
+        target_ts = controller.cursor_ts - timedelta(seconds=seconds)
+        
+        # Update cursor and clear replay buffer
+        controller.cursor_ts = target_ts
+        replay_buffer.clear()
+        
+        logger.info(f"Rewound replay by {seconds}s to {target_ts}")
+        return {"status": "success", "new_timestamp": str(target_ts)}
+    
+    except Exception as e:
+        logger.error(f"Go back error: {e}")
+        return {"status": "error", "message": str(e)}
+
 # --------------------------------------------------
 # Data APIs (Dashboard)
 # --------------------------------------------------

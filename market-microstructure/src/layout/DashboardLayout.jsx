@@ -20,6 +20,7 @@ export default function DashboardLayout({
   onResume,
   onStop,
   onSpeed,
+  onGoBack, 
   replayState = "STOPPED",
   currentSpeed = 1,
 }) {
@@ -427,6 +428,7 @@ export default function DashboardLayout({
               onResume={onResume}
               onStop={onStop}
               onSpeed={onSpeed}
+              onGoBack={onGoBack}
               isPlaying={replayState === "PLAYING"}
               isPaused={replayState === "PAUSED"}
               currentSpeed={currentSpeed}

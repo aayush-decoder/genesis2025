@@ -101,6 +101,24 @@ export default function Dashboard() {
     controlReplay(`speed/${speed}`);
   };
 
+  const handleGoBack = async (seconds) => {
+  try {
+    const response = await fetch(`${BACKEND_HTTP}/replay/goback/${seconds}`, {
+      method: 'POST'
+    });
+    const result = await response.json();
+    
+    if (result.status === 'success') {
+      // Clear frontend data buffer
+      setData([]);
+      setLatestSnapshot(null);
+      console.log('Rewound and cleared buffer');
+    }
+  } catch (error) {
+    console.error('Go back failed:', error);
+  }
+};
+
   // -------------------------------
   // Render
   // -------------------------------
@@ -113,6 +131,7 @@ export default function Dashboard() {
       onResume={handleResume}
       onStop={handleStop}
       onSpeed={handleSpeed}
+      onGoBack={handleGoBack}
       replayState={replayState}
       currentSpeed={currentSpeed}
     />
