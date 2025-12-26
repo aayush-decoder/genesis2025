@@ -201,7 +201,7 @@ export default function Dashboard() {
           alignItems: 'center',
           justifyContent: 'center'
         }}>
-          <div style={{
+          <div className="loading-overlay-text" style={{
             padding: '20px 40px',
             backgroundColor: '#1e293b',
             borderRadius: '12px',
@@ -216,7 +216,7 @@ export default function Dashboard() {
       )}
 
       {/* Data Export Controls */}
-      <div style={{
+      <div className="data-export-container" style={{
         position: 'fixed',
         top: '20px',
         right: '20px',

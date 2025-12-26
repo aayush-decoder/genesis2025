@@ -376,3 +376,284 @@ body,
   background-color: #3b82f6;
   color: white;
 }
+
+/* ======================================================
+   MOBILE RESPONSIVENESS (Priority #11)
+====================================================== */
+
+/* Tablet landscape and below (1024px) */
+@media (max-width: 1024px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 8px;
+  }
+
+  .right-column {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto;
+    gap: 12px;
+  }
+
+  .controls-bar {
+    flex-wrap: wrap;
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .chart-title {
+    font-size: 0.9rem;
+  }
+}
+
+/* Tablet portrait (768px) */
+@media (max-width: 768px) {
+  .dashboard-grid {
+    padding: 6px;
+    gap: 8px;
+  }
+
+  .panel {
+    padding: 8px;
+  }
+
+  .left-column {
+    gap: 12px;
+  }
+
+  .right-column {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .controls-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .controls-left,
+  .controls-right {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .btn {
+    min-height: 44px; /* Touch-friendly */
+    padding: 0 16px;
+    font-size: 14px;
+    flex: 1;
+    min-width: 80px;
+  }
+
+  .chart-title {
+    font-size: 0.85rem;
+  }
+
+  /* Make DataExport button larger and more accessible */
+  .data-export-container {
+    top: 10px !important;
+    right: 10px !important;
+  }
+
+  /* Adjust charts for smaller screens */
+  .chart-section {
+    gap: 8px;
+  }
+
+  /* Price ladder adjustments */
+  .ladder-container {
+    font-size: 0.75rem;
+  }
+
+  .price-cell {
+    width: 60px;
+    font-size: 0.7rem;
+  }
+
+  .vol-text {
+    font-size: 0.7rem;
+  }
+
+  /* Signal monitor adjustments */
+  .signals-list {
+    gap: 4px;
+  }
+}
+
+/* Mobile phones (480px and below) */
+@media (max-width: 480px) {
+  .dashboard-grid {
+    padding: 4px;
+    gap: 8px;
+  }
+
+  .panel {
+    padding: 6px;
+    border-radius: 6px;
+  }
+
+  .chart-section {
+    gap: 6px;
+  }
+
+  .chart-title {
+    font-size: 0.8rem;
+    padding-left: 0;
+  }
+
+  .controls-bar {
+    padding: 6px;
+    margin: 8px 4px;
+    gap: 6px;
+  }
+
+  .btn {
+    min-height: 48px; /* Larger touch targets */
+    padding: 0 12px;
+    font-size: 13px;
+    border-radius: 6px;
+  }
+
+  .controls-left,
+  .controls-right {
+    width: 100%;
+  }
+
+  .controls-left > *,
+  .controls-right > * {
+    flex: 1;
+    min-width: 70px;
+  }
+
+  /* Stack features vertically */
+  .features-scroll {
+    gap: 12px;
+  }
+
+  /* Compact price ladder */
+  .ladder-container {
+    font-size: 0.7rem;
+  }
+
+  .ladder-row {
+    padding: 2px 0;
+  }
+
+  .price-cell {
+    width: 50px;
+    padding-right: 6px;
+    font-size: 0.65rem;
+  }
+
+  .vol-cell {
+    height: 18px;
+  }
+
+  .vol-text {
+    font-size: 0.65rem;
+    padding-left: 4px;
+    line-height: 18px;
+  }
+
+  /* Compact signal items */
+  .signal-item {
+    padding: 6px !important;
+    font-size: 0.8rem !important;
+  }
+
+  .severity-badge {
+    font-size: 0.65rem;
+    padding: 1px 4px;
+  }
+
+  /* Adjust export button for mobile */
+  .data-export-container {
+    top: 8px !important;
+    right: 8px !important;
+    transform: scale(0.9);
+  }
+
+  /* Loading overlay text */
+  .loading-overlay-text {
+    padding: 15px 30px !important;
+    font-size: 14px !important;
+  }
+}
+
+/* Small mobile (360px and below) */
+@media (max-width: 360px) {
+  .dashboard-grid {
+    padding: 2px;
+  }
+
+  .panel {
+    padding: 4px;
+  }
+
+  .chart-title {
+    font-size: 0.75rem;
+  }
+
+  .btn {
+    font-size: 12px;
+    padding: 0 8px;
+    min-height: 44px;
+  }
+
+  .ladder-container {
+    font-size: 0.65rem;
+  }
+
+  .price-cell {
+    width: 45px;
+    font-size: 0.6rem;
+  }
+
+  .vol-text {
+    font-size: 0.6rem;
+  }
+}
+
+/* Touch device optimizations */
+@media (hover: none) and (pointer: coarse) {
+  /* Increase tap targets */
+  .btn {
+    min-height: 48px;
+    padding: 0 16px;
+  }
+
+  /* Remove hover effects on touch devices */
+  .btn:hover {
+    filter: brightness(1);
+  }
+
+  .signal-item:hover {
+    background-color: transparent !important;
+  }
+
+  /* Larger scrollbar for touch */
+  ::-webkit-scrollbar {
+    width: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #475569;
+  }
+}
+
+/* Landscape orientation on phones */
+@media (max-width: 768px) and (orientation: landscape) {
+  .dashboard-grid {
+    grid-template-columns: 1.5fr 1fr;
+  }
+
+  .right-column {
+    grid-template-columns: 1fr;
+  }
+
+  .controls-bar {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
