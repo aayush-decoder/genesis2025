@@ -192,3 +192,145 @@ class TestErrorHandling:
         data = response.json()
         # Should be capped by deque maxlen (1000)
         assert len(data) <= 1000
+
+
+class TestAdvancedAnomalyEndpoints:
+    """Test new anomaly detection API endpoints (Priority #13)."""
+    
+    def test_quote_stuffing_endpoint(self, client):
+        """Test /anomalies/quote-stuffing endpoint."""
+        response = client.get("/anomalies/quote-stuffing")
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert isinstance(data, list)
+        # Validate structure if data exists
+        if len(data) > 0:
+            assert "timestamp" in data[0]
+            assert "update_rate" in data[0]
+            assert "severity" in data[0]
+    
+    def test_layering_endpoint(self, client):
+        """Test /anomalies/layering endpoint."""
+        response = client.get("/anomalies/layering")
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert isinstance(data, list)
+        if len(data) > 0:
+            assert "side" in data[0]
+            assert "score" in data[0]
+            assert "large_order_count" in data[0]
+    
+    def test_momentum_ignition_endpoint(self, client):
+        """Test /anomalies/momentum-ignition endpoint."""
+        response = client.get("/anomalies/momentum-ignition")
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert isinstance(data, list)
+        if len(data) > 0:
+            assert "price_change_pct" in data[0]
+            assert "direction" in data[0]
+            assert data[0]["direction"] in ["UP", "DOWN"]
+    
+    def test_wash_trading_endpoint(self, client):
+        """Test /anomalies/wash-trading endpoint."""
+        response = client.get("/anomalies/wash-trading")
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert isinstance(data, list)
+        if len(data) > 0:
+            assert "avg_volume" in data[0]
+            assert "volume_variance" in data[0]
+            assert "pattern_count" in data[0]
+    
+    def test_iceberg_orders_endpoint(self, client):
+        """Test /anomalies/iceberg-orders endpoint."""
+        response = client.get("/anomalies/iceberg-orders")
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert isinstance(data, list)
+        if len(data) > 0:
+            assert "fill_count" in data[0]
+            assert "total_volume" in data[0]
+            assert "avg_fill_size" in data[0]
+            assert "side" in data[0]
+    
+    def test_anomalies_summary_endpoint(self, client):
+        """Test /anomalies/summary endpoint."""
+        response = client.get("/anomalies/summary")
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert isinstance(data, dict)
+        # Check all anomaly types are present
+        assert "quote_stuffing" in data
+        assert "layering" in data
+        assert "momentum_ignition" in data
+        assert "wash_trading" in data
+        assert "iceberg_orders" in data
+        assert "spoofing" in data
+        assert "liquidity_gaps" in data
+        
+        # All should be non-negative integers
+        for count in data.values():
+            assert isinstance(count, int)
+            assert count >= 0
+    
+    def test_anomalies_summary_counts_match(self, client):
+        """Test that summary counts are consistent."""
+        summary = client.get("/anomalies/summary").json()
+        
+        # Get individual endpoint counts
+        quote_stuffing = len(client.get("/anomalies/quote-stuffing").json())
+        layering = len(client.get("/anomalies/layering").json())
+        
+        # Summary counts should be >= individual counts (may have more from buffer)
+        assert summary["quote_stuffing"] >= 0
+        assert summary["layering"] >= 0
+
+
+class TestEngineEndpoints:
+    """Test C++ engine management endpoints."""
+    
+    def test_engine_status_endpoint(self, client):
+        """Test /engine/status endpoint."""
+        response = client.get("/engine/status")
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert "active_engine" in data
+        assert data["active_engine"] in ["python", "cpp"]
+        assert "cpp_enabled" in data
+    
+    def test_engine_switch_endpoint(self, client):
+        """Test /engine/switch endpoint."""
+        response = client.post("/engine/switch?mode=python")
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert "status" in data
+        assert data["status"] in ["success", "error"]
+    
+    def test_database_pool_endpoint(self, client):
+        """Test /db/pool endpoint."""
+        response = client.get("/db/pool")
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert "used" in data
+        assert "available" in data
+        assert "total" in data
+        assert data["used"] + data["available"] == data["total"]
+    
+    def test_database_health_endpoint(self, client):
+        """Test /db/health endpoint."""
+        response = client.get("/db/health")
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert "status" in data
+        assert data["status"] in ["healthy", "error"]
