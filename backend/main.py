@@ -408,43 +408,76 @@ async def replay_loop():
             asyncio.create_task(broadcast_loop())
             return
 
+    consecutive_errors = 0
+    max_consecutive_errors = 5
+    
     try:
         while True:
-            if controller.state != "PLAYING":
-                await asyncio.sleep(0.1)
-                continue
-
-            # Refill buffer if empty
-            if not replay_buffer:
-                last_ts = controller.cursor_ts or datetime.min
-                rows = await conn.fetch(QUERY_BATCH, last_ts, REPLAY_BATCH_SIZE)
-
-                if not rows:
-                    logger.info("Replay finished")
-                    controller.state = "STOPPED"
+            try:
+                if controller.state != "PLAYING":
+                    await asyncio.sleep(0.1)
                     continue
 
-                for r in rows:
-                    # Convert asyncpg.Record to dict
-                    replay_buffer.append(dict(r))
+                # Refill buffer if empty
+                if not replay_buffer:
+                    last_ts = controller.cursor_ts or datetime.min
+                    
+                    try:
+                        rows = await conn.fetch(QUERY_BATCH, last_ts, REPLAY_BATCH_SIZE)
+                    except Exception as db_err:
+                        logger.error(f"Database query error: {db_err}")
+                        metrics.record_error("db_query_error")
+                        consecutive_errors += 1
+                        
+                        if consecutive_errors >= max_consecutive_errors:
+                            logger.error(f"Circuit breaker: {consecutive_errors} consecutive DB errors")
+                            MODE = "SIMULATION"
+                            threading.Thread(target=simulation_loop, daemon=True).start()
+                            asyncio.create_task(broadcast_loop())
+                            break
+                        
+                        await asyncio.sleep(1.0)  # Back off before retry
+                        continue
 
-            # Pop next row from buffer
-            row = replay_buffer.popleft()
-            controller.cursor_ts = row["ts"]
+                    if not rows:
+                        logger.info("Replay finished")
+                        controller.stop()
+                        continue
+                    
+                    consecutive_errors = 0  # Reset on success
 
-            start_time = time.time()
+                    for r in rows:
+                        # Convert asyncpg.Record to dict
+                        replay_buffer.append(dict(r))
+
+                # Pop next row from buffer
+                row = replay_buffer.popleft()
+                controller.cursor_ts = row["ts"]
+
+                start_time = time.time()
+                
+                snapshot = db_row_to_snapshot(row)
+
+                # Send to analytics worker (non-blocking)
+                try:
+                    raw_snapshot_queue.put_nowait(snapshot)
+                except queue.Full:
+                    metrics.record_error("analytics_queue_full")
+                    logger.warning("Analytics queue full, dropping snapshot")
+
+                # Replay speed (250 ms base)
+                await asyncio.sleep(0.25 / controller.speed)
             
-            snapshot = db_row_to_snapshot(row)
-
-            # Send to analytics worker (non-blocking)
-            try:
-                raw_snapshot_queue.put_nowait(snapshot)
-            except queue.Full:
-                metrics.record_error("analytics_queue_full")
-
-            
-            # Replay speed (250 ms base)
-            await asyncio.sleep(0.25 / controller.speed)
+            except Exception as loop_err:
+                logger.error(f"Error in replay loop iteration: {loop_err}")
+                metrics.record_error("replay_loop_iteration_error")
+                consecutive_errors += 1
+                
+                if consecutive_errors >= max_consecutive_errors:
+                    logger.error("Too many errors, breaking replay loop")
+                    break
+                
+                await asyncio.sleep(0.5)
     
     finally:
         if conn:
@@ -513,54 +546,56 @@ async def websocket_endpoint(websocket: WebSocket):
 # --------------------------------------------------
 @app.post("/replay/start")
 def start_replay():
-    controller.state = "PLAYING"
-    controller.cursor_ts = None
+    controller.start()
+    replay_buffer.clear()  # Clear buffer for fresh start
     logger.info("Replay started")
-    return {"status": "started"}
+    return {"status": "started", **controller.get_state()}
 
 @app.post("/replay/pause")
 def pause_replay():
-    controller.state = "PAUSED"
+    controller.pause()
     logger.info("Replay paused")
-    return {"status": "paused"}
+    return {"status": "paused", **controller.get_state()}
 
 @app.post("/replay/resume")
 def resume_replay():
-    controller.state = "PLAYING"
+    controller.resume()
     logger.info("Replay resumed")
-    return {"status": "resumed"}
+    return {"status": "resumed", **controller.get_state()}
 
 @app.post("/replay/stop")
 def stop_replay():
-    controller.state = "STOPPED"
-    controller.cursor_ts = None
+    controller.stop()
+    replay_buffer.clear()
+    data_buffer.clear()
     logger.info("Replay stopped")
-    return {"status": "stopped"}
+    return {"status": "stopped", **controller.get_state()}
 
 @app.post("/replay/speed/{value}")
 def set_speed(value: int):
-    controller.speed = max(1, value)
+    controller.set_speed(value)
     logger.info(f"Replay speed set to {controller.speed}x")
-    return {"speed": controller.speed}
+    return {"status": "success", "speed": controller.speed, **controller.get_state()}
+
+@app.get("/replay/state")
+def get_replay_state():
+    """Get current replay state."""
+    return controller.get_state()
 
 @app.post("/replay/goback/{seconds}")
 def go_back(seconds: float):
     """Rewind replay by specified seconds."""
     try:
-        if MODE != "REPLAY" or not controller.cursor_ts:
+        if MODE not in ["REPLAY", "CSV_REPLAY"]:
+            return {"status": "error", "message": "Go back only available in replay mode"}
+        
+        if controller.go_back(seconds):
+            replay_buffer.clear()
+            data_buffer.clear()
+            logger.info(f"Rewound replay by {seconds} seconds to {controller.cursor_ts}")
+            return {"status": "success", "message": f"Rewound by {seconds}s", **controller.get_state()}
+        else:
             return {"status": "error", "message": "Can only go back in DB replay mode"}
-        
-        # Calculate target timestamp
-        from datetime import timedelta
-        target_ts = controller.cursor_ts - timedelta(seconds=seconds)
-        
-        # Update cursor and clear replay buffer
-        controller.cursor_ts = target_ts
-        replay_buffer.clear()
-        
-        logger.info(f"Rewound replay by {seconds}s to {target_ts}")
-        return {"status": "success", "new_timestamp": str(target_ts)}
-    
     except Exception as e:
         logger.error(f"Go back error: {e}")
         return {"status": "error", "message": str(e)}

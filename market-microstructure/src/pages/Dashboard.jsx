@@ -15,53 +15,83 @@ export default function Dashboard() {
   const wsRef = useRef(null);
 
   // -------------------------------
-  // WebSocket: Market Data Stream
+  // WebSocket: Market Data Stream with Auto-Reconnect
   // -------------------------------
   useEffect(() => {
-    const ws = new WebSocket(BACKEND_WS);
-    wsRef.current = ws;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 10;
+    const reconnectDelay = 3000;
+    let reconnectTimeout = null;
+    let intentionallyClosed = false;
 
-    ws.onopen = () => {
-      console.log("✅ Connected to Market Replay Feed");
-    };
+    const connect = () => {
+      const ws = new WebSocket(BACKEND_WS);
+      wsRef.current = ws;
 
-    ws.onmessage = (event) => {
-      const message = JSON.parse(event.data);
+      ws.onopen = () => {
+        console.log("✅ Connected to Market Replay Feed");
+        reconnectAttempts = 0; // Reset on successful connection
+      };
 
-      // Initial history payload
-      if (message.type === "history") {
-        setData(message.data || []);
-        if (message.data && message.data.length > 0) {
-          setLatestSnapshot(message.data[message.data.length - 1]);
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+
+          // Initial history payload
+          if (message.type === "history") {
+            setData(message.data || []);
+            if (message.data && message.data.length > 0) {
+              setLatestSnapshot(message.data[message.data.length - 1]);
+            }
+            return;
+          }
+
+          // Live replay update
+          const snapshot = message;
+          setLatestSnapshot(snapshot);
+
+          setData((prev) => {
+            const updated = [...prev, snapshot];
+            if (updated.length > MAX_BUFFER) updated.shift();
+            return updated;
+          });
+        } catch (err) {
+          console.error("Error parsing WebSocket message:", err);
         }
-        return;
-      }
+      };
 
-      // Live replay update
-      const snapshot = message;
-      setLatestSnapshot(snapshot);
+      ws.onclose = (event) => {
+        console.log("❌ Disconnected from Market Replay Feed", event.code, event.reason);
+        
+        // Auto-reconnect if not intentionally closed
+        if (!intentionallyClosed && reconnectAttempts < maxReconnectAttempts) {
+          reconnectAttempts++;
+          console.log(`🔄 Reconnecting (attempt ${reconnectAttempts}/${maxReconnectAttempts})...`);
+          reconnectTimeout = setTimeout(connect, reconnectDelay);
+        } else if (reconnectAttempts >= maxReconnectAttempts) {
+          console.error("❌ Max reconnection attempts reached. Please refresh the page.");
+        }
+      };
 
-      setData((prev) => {
-        const updated = [...prev, snapshot];
-        if (updated.length > MAX_BUFFER) updated.shift();
-        return updated;
-      });
+      ws.onerror = (err) => {
+        console.error("WebSocket error:", {
+          url: ws.url,
+          readyState: ws.readyState,
+          err,
+        });
+      };
     };
 
-    ws.onclose = () => {
-      console.log("❌ Disconnected from Market Replay Feed");
-    };
-
-    ws.onerror = (err) => {
-      console.error("WebSocket error:", {
-        url: ws.url,
-        readyState: ws.readyState,
-        err,
-      });
-    };
+    connect();
 
     return () => {
-      ws.close();
+      intentionallyClosed = true;
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
     };
   }, []);
 
