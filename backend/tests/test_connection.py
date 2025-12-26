@@ -5,24 +5,23 @@ Simple test script to verify database and backend connections
 
 import sys
 import time
+import asyncio
 from db import get_connection, return_connection
 
-def test_database_connection():
+async def test_database_connection():
     """Test the database connection"""
     print("🔍 Testing database connection...")
     
+    conn = None
     try:
-        conn = get_connection()
-        cur = conn.cursor()
+        conn = await get_connection()
         
         # Test basic connection
-        cur.execute("SELECT version()")
-        version = cur.fetchone()
-        print(f"✅ PostgreSQL connected: {version['version'][:50]}...")
+        version = await conn.fetchval("SELECT version()")
+        print(f"✅ PostgreSQL connected: {version[:50]}...")
         
         # Test TimescaleDB extension
-        cur.execute("SELECT extname FROM pg_extension WHERE extname = 'timescaledb'")
-        ext = cur.fetchone()
+        ext = await conn.fetchval("SELECT extname FROM pg_extension WHERE extname = 'timescaledb'")
         if ext:
             print("✅ TimescaleDB extension is enabled")
         else:
@@ -30,8 +29,7 @@ def test_database_connection():
             return False
         
         # Test hypertable
-        cur.execute("SELECT hypertable_name FROM timescaledb_information.hypertables WHERE hypertable_name = 'l2_orderbook'")
-        hypertable = cur.fetchone()
+        hypertable = await conn.fetchval("SELECT hypertable_name FROM timescaledb_information.hypertables WHERE hypertable_name = 'l2_orderbook'")
         if hypertable:
             print("✅ l2_orderbook hypertable exists")
         else:
@@ -39,18 +37,16 @@ def test_database_connection():
             return False
         
         # Test table structure
-        cur.execute("SELECT COUNT(*) FROM l2_orderbook")
-        count = cur.fetchone()
-        print(f"✅ l2_orderbook table has {count['count']} rows")
+        count = await conn.fetchval("SELECT COUNT(*) FROM l2_orderbook")
+        print(f"✅ l2_orderbook table has {count} rows")
         
         # Test table columns
-        cur.execute("""
+        columns = await conn.fetch("""
             SELECT column_name 
             FROM information_schema.columns 
             WHERE table_name = 'l2_orderbook' 
             ORDER BY ordinal_position
         """)
-        columns = cur.fetchall()
         expected_columns = ['ts', 'bid_price_1', 'bid_volume_1', 'ask_price_1', 'ask_volume_1']
         found_columns = [col['column_name'] for col in columns[:5]]
         
@@ -60,12 +56,14 @@ def test_database_connection():
             print(f"❌ Table structure issue. Found: {found_columns}")
             return False
         
-        return_connection(conn)
         return True
         
     except Exception as e:
         print(f"❌ Database connection failed: {e}")
         return False
+    finally:
+        if conn:
+            await return_connection(conn)
 
 def test_backend_imports():
     """Test that backend modules can be imported"""
@@ -94,8 +92,8 @@ def main():
     print("🚀 Market Microstructure Backend Connection Test")
     print("=" * 50)
     
-    # Test database
-    db_ok = test_database_connection()
+    # Test database (async)
+    db_ok = asyncio.run(test_database_connection())
     
     # Test backend
     backend_ok = test_backend_imports()

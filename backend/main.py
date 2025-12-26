@@ -8,7 +8,7 @@ import pandas as pd
 
 from analytics import AnalyticsEngine, db_row_to_snapshot, MarketSimulator
 from replay import ReplayController
-from db import get_connection, return_connection
+from db import get_connection, return_connection, close_all_connections
 
 from datetime import datetime
 from decimal import Decimal
@@ -375,19 +375,19 @@ async def csv_replay_loop():
 async def replay_loop():
     global MODE
     logger.info("Attempting to connect to TimescaleDB...")
-
+    
+    conn = None
     try:
-        conn = get_connection()
-        cur = conn.cursor()
+        conn = await get_connection()
         MODE = "REPLAY"
         logger.info("Connected to DB. Starting Replay Loop.")
         
         QUERY_BATCH = """
             SELECT *
             FROM l2_orderbook
-            WHERE ts > %s
+            WHERE ts > $1
             ORDER BY ts
-            LIMIT %s
+            LIMIT $2
         """
         
     except Exception as e:
@@ -399,10 +399,6 @@ async def replay_loop():
             logger.info("CSV found. Switching to CSV REPLAY MODE.")
             MODE = "CSV_REPLAY"
             asyncio.create_task(csv_replay_loop())
-            # Start broadcaster not needed for CSV loop as it broadcasts directly? 
-            # Wait, csv_replay_loop broadcasts directly.
-            # But simulation_loop puts to queue.
-            # Let's keep it consistent.
             return
         else:
             logger.warning("CSV not found. Switching to SIMULATION MODE (Fallback)")
@@ -412,42 +408,47 @@ async def replay_loop():
             asyncio.create_task(broadcast_loop())
             return
 
-    while True:
-        if controller.state != "PLAYING":
-            await asyncio.sleep(0.1)
-            continue
-
-        # Refill buffer if empty
-        if not replay_buffer:
-            last_ts = controller.cursor_ts or datetime.min
-            cur.execute(QUERY_BATCH, (last_ts, REPLAY_BATCH_SIZE))
-            rows = cur.fetchall()
-
-            if not rows:
-                logger.info("Replay finished")
-                controller.state = "STOPPED"
+    try:
+        while True:
+            if controller.state != "PLAYING":
+                await asyncio.sleep(0.1)
                 continue
 
-            for r in rows:
-                replay_buffer.append(r)
+            # Refill buffer if empty
+            if not replay_buffer:
+                last_ts = controller.cursor_ts or datetime.min
+                rows = await conn.fetch(QUERY_BATCH, last_ts, REPLAY_BATCH_SIZE)
 
-        # Pop next row from buffer
-        row = replay_buffer.popleft()
-        controller.cursor_ts = row["ts"]
+                if not rows:
+                    logger.info("Replay finished")
+                    controller.state = "STOPPED"
+                    continue
 
-        start_time = time.time()
-        
-        snapshot = db_row_to_snapshot(row)
+                for r in rows:
+                    # Convert asyncpg.Record to dict
+                    replay_buffer.append(dict(r))
 
-        # Send to analytics worker (non-blocking)
-        try:
-            raw_snapshot_queue.put_nowait(snapshot)
-        except queue.Full:
-            metrics.record_error("analytics_queue_full")
+            # Pop next row from buffer
+            row = replay_buffer.popleft()
+            controller.cursor_ts = row["ts"]
 
-        
-        # Replay speed (250 ms base)
-        await asyncio.sleep(0.25 / controller.speed)
+            start_time = time.time()
+            
+            snapshot = db_row_to_snapshot(row)
+
+            # Send to analytics worker (non-blocking)
+            try:
+                raw_snapshot_queue.put_nowait(snapshot)
+            except queue.Full:
+                metrics.record_error("analytics_queue_full")
+
+            
+            # Replay speed (250 ms base)
+            await asyncio.sleep(0.25 / controller.speed)
+    
+    finally:
+        if conn:
+            await return_connection(conn)
 
 # --------------------------------------------------
 # Startup Hook
@@ -464,6 +465,14 @@ async def startup():
     asyncio.create_task(processed_broadcast_loop())
 
     logger.info("Backend started")
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    """Gracefully close database connections on shutdown."""
+    logger.info("Shutting down, closing database connections...")
+    await close_all_connections()
+    logger.info("Database connections closed")
 
 
 # --------------------------------------------------

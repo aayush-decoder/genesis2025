@@ -5,6 +5,7 @@ Quick status check for the Market Microstructure system
 
 import subprocess
 import sys
+import asyncio
 import requests
 from db import get_connection, return_connection
 
@@ -28,20 +29,21 @@ def check_docker():
     except Exception as e:
         return False, f"Docker check failed: {e}"
 
-def check_database():
+async def check_database():
     """Check database connection and data"""
+    conn = None
     try:
-        conn = get_connection()
-        cur = conn.cursor()
+        conn = await get_connection()
         
-        cur.execute("SELECT COUNT(*) FROM l2_orderbook")
-        count = cur.fetchone()
+        count = await conn.fetchval("SELECT COUNT(*) FROM l2_orderbook")
         
-        return_connection(conn)
-        return True, f"Database connected, {count['count']} rows in l2_orderbook"
+        return True, f"Database connected, {count} rows in l2_orderbook"
         
     except Exception as e:
         return False, f"Database connection failed: {e}"
+    finally:
+        if conn:
+            await return_connection(conn)
 
 def check_backend():
     """Check if backend server is running"""
@@ -65,8 +67,8 @@ def main():
     docker_ok, docker_msg = check_docker()
     print(f"🐳 Docker: {'✅' if docker_ok else '❌'} {docker_msg}")
     
-    # Check Database
-    db_ok, db_msg = check_database()
+    # Check Database (async)
+    db_ok, db_msg = asyncio.run(check_database())
     print(f"🗄️  Database: {'✅' if db_ok else '❌'} {db_msg}")
     
     # Check Backend

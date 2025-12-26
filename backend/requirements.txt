@@ -8,7 +8,7 @@ scikit-learn
 grpcio
 protobuf
 sqlalchemy 
-psycopg2-binary
+asyncpg
 pytest
 pytest-asyncio
 pytest-cov

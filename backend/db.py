@@ -1,45 +1,44 @@
-import psycopg2
-from psycopg2.extras import RealDictCursor
-from psycopg2 import pool
-import threading
+import asyncpg
+import asyncio
+from typing import Optional
 
-# Connection pool for better performance
-_connection_pool = None
-_pool_lock = threading.Lock()
+# Async connection pool for better performance in async context
+_connection_pool: Optional[asyncpg.Pool] = None
+_pool_lock = asyncio.Lock()
 
-def get_connection_pool():
-    """Get or create a connection pool."""
+async def get_connection_pool() -> asyncpg.Pool:
+    """Get or create an async connection pool."""
     global _connection_pool
     
     if _connection_pool is None:
-        with _pool_lock:
+        async with _pool_lock:
             if _connection_pool is None:  # Double-check locking
-                _connection_pool = psycopg2.pool.SimpleConnectionPool(
-                    minconn=1,
-                    maxconn=5,
+                _connection_pool = await asyncpg.create_pool(
                     host="127.0.0.1",
                     port=5433,
                     database="orderbook",
                     user="postgres",
                     password="postgres",
-                    cursor_factory=RealDictCursor
+                    min_size=1,
+                    max_size=5,
+                    command_timeout=60
                 )
     
     return _connection_pool
 
-def get_connection():
+async def get_connection():
     """Get a connection from the pool."""
-    pool = get_connection_pool()
-    return pool.getconn()
+    pool = await get_connection_pool()
+    return await pool.acquire()
 
-def return_connection(conn):
+async def return_connection(conn):
     """Return a connection to the pool."""
-    pool = get_connection_pool()
-    pool.putconn(conn)
+    pool = await get_connection_pool()
+    await pool.release(conn)
 
-def close_all_connections():
+async def close_all_connections():
     """Close all connections in the pool."""
     global _connection_pool
     if _connection_pool is not None:
-        _connection_pool.closeall()
+        await _connection_pool.close()
         _connection_pool = None
