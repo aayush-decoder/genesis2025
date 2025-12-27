@@ -1,7 +1,7 @@
 """Unit tests for analytics.py components."""
 import pytest
 import numpy as np
-from analytics import DataValidator, AlertManager, AnalyticsEngine, MarketSimulator
+from analytics_core import DataValidator, AlertManager, AnalyticsEngine, MarketSimulator
 
 
 class TestDataValidator:

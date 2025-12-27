@@ -70,7 +70,7 @@ def test_backend_imports():
     print("\n🔍 Testing backend module imports...")
     
     try:
-        from analytics import AnalyticsEngine
+        from analytics_core import AnalyticsEngine
         print("✅ Analytics module imported")
         
         from replay import ReplayController

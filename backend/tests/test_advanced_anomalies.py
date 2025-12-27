@@ -2,7 +2,7 @@
 import pytest
 import time
 from datetime import datetime, timedelta
-from analytics import AnalyticsEngine
+from analytics_core import AnalyticsEngine
 
 
 class TestQuoteStuffing:
