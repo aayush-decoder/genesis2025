@@ -23,10 +23,10 @@ export default function DashboardLayout({
   onResume,
   onStop,
   onSpeed,
-  onGoBack, 
+  onGoBack,
   replayState = "STOPPED",
   currentSpeed = 1,
-  showToast
+  showToast,
 }) {
   const [hoveredSnapshot, setHoveredSnapshot] = useState(null);
   const [currentFeatureIndex, setCurrentFeatureIndex] = useState(0);
@@ -41,7 +41,6 @@ export default function DashboardLayout({
       title: "ORDER BOOK IMBALANCE",
       component: (
         <FeaturePanel
-          // title="Order Book Imbalance"
           data={data}
           dataKey="obi"
           color="#38bdf8"
@@ -49,35 +48,69 @@ export default function DashboardLayout({
         />
       ),
       modalComponent: (
-        <FeaturePanel
-          title="Order Book Imbalance"
-          data={data}
-          dataKey="obi"
-          color="#38bdf8"
-          threshold={0.5}
-        />
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "16px",
+            height: "100%",
+          }}
+        >
+          <div style={{ flex: 1, overflow: "hidden" }}>
+            <FeaturePanel
+              title="Order Book Imbalance"
+              data={data}
+              dataKey="obi"
+              color="#38bdf8"
+              threshold={0.5}
+            />
+          </div>
+          <div style={{ flex: 1, overflow: "hidden" }}>
+            <FeaturePanel
+              title="Spread"
+              data={data}
+              dataKey="spread"
+              color="#f472b6"
+              isSpread
+            />
+          </div>
+        </div>
       ),
     },
     {
       id: "spread",
       title: "SPREAD",
       component: (
-        <FeaturePanel
-          // title="Spread"
-          data={data}
-          dataKey="spread"
-          color="#f472b6"
-          isSpread
-        />
+        <FeaturePanel data={data} dataKey="spread" color="#f472b6" isSpread />
       ),
       modalComponent: (
-        <FeaturePanel
-          title="Spread"
-          data={data}
-          dataKey="spread"
-          color="#f472b6"
-          isSpread
-        />
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "16px",
+            height: "100%",
+          }}
+        >
+          <div style={{ flex: 1, overflow: "hidden" }}>
+            <FeaturePanel
+              title="Spread"
+              data={data}
+              dataKey="spread"
+              color="#f472b6"
+              isSpread
+            />
+          </div>
+          <div style={{ flex: 1, overflow: "hidden" }}>
+            <FeaturePanel
+              title="Order Book Imbalance"
+              data={data}
+              dataKey="obi"
+              color="#38bdf8"
+              threshold={0.5}
+            />
+          </div>
+        </div>
       ),
     },
     {
@@ -145,14 +178,14 @@ export default function DashboardLayout({
     {
       id: "vpin",
       title: "V-PIN MONITOR",
-      component: <VPINChart data={data} />,
-      modalComponent: <VPINChart data={data} />,
+      component: <VPINChart data={data} />, // Small view (default)
+      modalComponent: <VPINChart data={data} isModal={true} />, // Modal view (detailed),
     },
     {
       id: "anomalies",
       title: "ADVANCED ANOMALIES",
       component: <AdvancedAnomalyFeed data={data} />,
-      modalComponent: <AdvancedAnomalyFeed data={data} />,
+      modalComponent: <AdvancedAnomalyFeed data={data} isModal={true} />,
     },
   ];
 
@@ -301,8 +334,8 @@ export default function DashboardLayout({
               style={{
                 transform: "scale(0.8)",
                 transformOrigin: "top left",
-                width: "111.11%",
-                height: "111.11%",
+                width: "125%",
+                height: "125%",
               }}
             >
               <SignalMonitor snapshot={latestSnapshot} />

@@ -142,7 +142,6 @@ ProcessedSnapshot AnalyticsEngine::processSnapshot(const Snapshot& snapshot) {
     }
     
     // Update dynamic averages for spread z-score
-    // Now 'spread' is available at this scope
     avg_spread = (1 - alpha) * avg_spread + alpha * spread;
     avg_spread_sq = (1 - alpha) * avg_spread_sq + alpha * (spread * spread);
     double std_spread = std::sqrt(std::max(0.0, avg_spread_sq - avg_spread * avg_spread));

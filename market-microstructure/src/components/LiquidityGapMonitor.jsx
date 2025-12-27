@@ -41,8 +41,8 @@ export default function LiquidityGapMonitor({ snapshot, data = [] }) {
         color: '#e5e7eb', 
         textTransform: 'uppercase', 
         letterSpacing: '0.5px',
-        borderBottom: '1px solid #374151',
-        paddingBottom: '8px'
+        // borderBottom: '1px solid #374151',
+        // paddingBottom: '8px'
       }}>
         {/* 💧 Liquidity Gap Monitor */}
       </h4>
