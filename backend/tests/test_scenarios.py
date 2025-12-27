@@ -1,6 +1,6 @@
 """Scenario-based tests using synthetic data."""
 import pytest
-from analytics import AnalyticsEngine, DataValidator
+from analytics_core import AnalyticsEngine, DataValidator
 from tests.synthetic_data import (
     get_spoofing_test_data,
     get_crash_test_data,

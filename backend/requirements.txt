@@ -6,9 +6,11 @@ pydantic
 websockets
 scikit-learn
 grpcio
+grpcio-tools
 protobuf
 sqlalchemy 
-psycopg2-binary
+asyncpg
+slowapi
 pytest
 pytest-asyncio
 pytest-cov

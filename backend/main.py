@@ -1,14 +1,18 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 import asyncio
 import logging
 from typing import List
 import os
 import pandas as pd
+import numpy as np
 
-from analytics import AnalyticsEngine, db_row_to_snapshot, MarketSimulator
+from analytics_core import AnalyticsEngine, db_row_to_snapshot, MarketSimulator
 from replay import ReplayController
-from db import get_connection, return_connection
+from db import get_connection, return_connection, close_all_connections, get_pool_stats
 
 from datetime import datetime
 from decimal import Decimal
@@ -18,9 +22,14 @@ import time
 import json
 from collections import defaultdict, deque
 
-from grpc_client.analytics_client import CppAnalyticsClient
+from analytics.analytics_client import CppAnalyticsClient
+import grpc
 
-USE_CPP_ENGINE = False  # feature flag - C++ engine is stub, use Python
+
+USE_CPP_ENGINE = os.getenv("USE_CPP_ENGINE", "true").lower() == "true"  # Auto-enable C++ engine
+CPP_ENGINE_HOST = os.getenv("CPP_ENGINE_HOST", "localhost")
+CPP_ENGINE_PORT = int(os.getenv("CPP_ENGINE_PORT", "50051"))
+engine_mode = "unknown"  # Track which engine is active: "cpp", "python", or "unavailable"
 
 
 def sanitize(obj):
@@ -43,6 +52,11 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+# --------------------------------------------------
+# Rate Limiting (Issue #11)
+# --------------------------------------------------
+limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
 
 # --------------------------------------------------
 # Monitoring & Metrics
@@ -88,6 +102,10 @@ class MetricsCollector:
         p95_latency = sorted(self.latency_samples)[int(len(self.latency_samples) * 0.95)] if len(self.latency_samples) > 20 else 0
         p99_latency = sorted(self.latency_samples)[int(len(self.latency_samples) * 0.99)] if len(self.latency_samples) > 100 else 0
         
+        # Engine-specific latency stats
+        cpp_avg = sum(self.cpp_latency) / len(self.cpp_latency) if self.cpp_latency else 0
+        py_avg = sum(self.py_latency) / len(self.py_latency) if self.py_latency else 0
+        
         return {
             "uptime_seconds": round(uptime, 1),
             "total_snapshots_processed": self.total_snapshots_processed,
@@ -100,7 +118,13 @@ class MetricsCollector:
             "avg_processing_time_ms": round(avg_processing, 2),
             "error_breakdown": dict(self.error_counts),
             "last_snapshot_ago_seconds": round(time.time() - self.last_snapshot_time, 1) if self.last_snapshot_time else None,
-            "mode": MODE
+            "mode": MODE,
+            "engine": engine_mode,
+            "cpp_avg_latency_ms": round(cpp_avg, 3),
+            "python_avg_latency_ms": round(py_avg, 3),
+            "cpp_samples": len(self.cpp_latency),
+            "python_samples": len(self.py_latency),
+            "performance_improvement": f"{(py_avg / cpp_avg):.1f}x" if cpp_avg > 0 and py_avg > 0 else "N/A"
         }
 
 metrics = MetricsCollector()
@@ -109,6 +133,8 @@ metrics = MetricsCollector()
 # FastAPI App
 # --------------------------------------------------
 app = FastAPI()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
@@ -122,9 +148,50 @@ app.add_middleware(
 # Core Components
 # --------------------------------------------------
 engine = AnalyticsEngine()
-cpp_client = CppAnalyticsClient()
+cpp_client = None  # Lazy initialization
 controller = ReplayController()
 simulator = MarketSimulator() # Fallback Simulator
+
+# Engine state lock to prevent race conditions
+engine_state_lock = threading.Lock()
+
+
+def initialize_cpp_engine():
+    """Initialize C++ engine with connection test and fallback."""
+    global cpp_client, engine_mode
+    
+    with engine_state_lock:
+        if not USE_CPP_ENGINE:
+            logger.info("C++ engine disabled via config, using Python engine")
+            engine_mode = "python"
+            return False
+        
+        try:
+            cpp_client = CppAnalyticsClient(host=CPP_ENGINE_HOST, port=CPP_ENGINE_PORT, timeout_ms=100)
+            
+            # Test connection with dummy snapshot
+            test_snapshot = {
+                "timestamp": "2024-01-01T00:00:00",
+                "bids": [[100.0, 10.0], [99.9, 20.0]],
+                "asks": [[100.1, 15.0], [100.2, 25.0]],
+                "mid_price": 100.05
+            }
+            result = cpp_client.process_snapshot(test_snapshot)
+            
+            logger.info(f"✅ C++ engine connected at {CPP_ENGINE_HOST}:{CPP_ENGINE_PORT} (latency: {result.get('latency_ms', 0):.2f}ms)")
+            engine_mode = "cpp"
+            return True
+            
+        except grpc.RpcError as e:
+            logger.warning(f"⚠️  C++ engine unavailable ({e.code()}), falling back to Python engine")
+            engine_mode = "python"
+            cpp_client = None
+            return False
+        except Exception as e:
+            logger.warning(f"⚠️  C++ engine initialization failed: {e}, falling back to Python engine")
+            engine_mode = "python"
+            cpp_client = None
+            return False
 
 MAX_BUFFER = 100
 data_buffer: List[dict] = []
@@ -246,7 +313,11 @@ async def processed_broadcast_loop():
 
 def analytics_worker():
     """Runs heavy analytics off the event loop."""
-    logger.info("Analytics worker started")
+    global engine_mode, cpp_client
+    logger.info(f"Analytics worker started (engine: {engine_mode})")
+    
+    consecutive_cpp_failures = 0
+    MAX_CPP_FAILURES = 5
 
     while True:
         try:
@@ -255,31 +326,78 @@ def analytics_worker():
                 continue
 
             processing_start = time.time()
+            used_engine = "python"  # Default
 
-            if USE_CPP_ENGINE:
-                result = cpp_client.process_snapshot(snapshot)
-
-                processed = {
-                    "timestamp": snapshot["timestamp"],
-                    "mid_price": result["mid_price"],
-                    "spread": result["spread"],
-                    "ofi": result["ofi"],
-                    "obi": result["obi"],
-                    "anomalies": result["anomalies"],
-                }
-
-                processing_time = result["latency_ms"]
-
+            # Try C++ engine first if available
+            if engine_mode == "cpp" and cpp_client is not None:
+                try:
+                    result = cpp_client.process_snapshot(snapshot)
+                    processed = result  # C++ client returns full result
+                    processing_time = result.get("latency_ms", 0)
+                    used_engine = "cpp"
+                    consecutive_cpp_failures = 0  # Reset failure counter
+                    
+                    # Add Python-only advanced anomaly detection on top of C++ results
+                    advanced_anomalies = engine.detect_advanced_anomalies(snapshot)
+                    if advanced_anomalies:
+                        processed['anomalies'] = processed.get('anomalies', []) + advanced_anomalies
+                        used_engine = "cpp+python_advanced"
+                    
+                except grpc.RpcError as e:
+                    consecutive_cpp_failures += 1
+                    logger.warning(f"C++ engine RPC error ({consecutive_cpp_failures}/{MAX_CPP_FAILURES}): {e.code()}")
+                    
+                    if consecutive_cpp_failures >= MAX_CPP_FAILURES:
+                        logger.error(f"C++ engine failed {MAX_CPP_FAILURES} times, switching to Python permanently")
+                        with engine_state_lock:
+                            engine_mode = "python"
+                            cpp_client = None
+                    
+                    # Fallback to Python for this snapshot
+                    processed = engine.process_snapshot(snapshot)
+                    processing_time = (time.time() - processing_start) * 1000
+                    used_engine = "python_fallback"
+                    
+                except (ConnectionError, TimeoutError) as e:
+                    consecutive_cpp_failures += 1
+                    logger.error(f"C++ engine connection error ({consecutive_cpp_failures}/{MAX_CPP_FAILURES}): {e}")
+                    
+                    if consecutive_cpp_failures >= MAX_CPP_FAILURES:
+                        logger.error(f"C++ engine failed {MAX_CPP_FAILURES} times, switching to Python permanently")
+                        with engine_state_lock:
+                            engine_mode = "python"
+                            cpp_client = None
+                    
+                    # Fallback to Python for this snapshot
+                    processed = engine.process_snapshot(snapshot)
+                    processing_time = (time.time() - processing_start) * 1000
+                    used_engine = "python_fallback"
+                    
+                except Exception as e:
+                    logger.error(f"C++ engine unexpected error: {e}", exc_info=True)
+                    processed = engine.process_snapshot(snapshot)
+                    processing_time = (time.time() - processing_start) * 1000
+                    used_engine = "python_fallback"
             else:
+                # Use Python engine
                 processed = engine.process_snapshot(snapshot)
                 processing_time = (time.time() - processing_start) * 1000
+                used_engine = "python"
 
             processed = sanitize(processed)
+            processed["engine"] = used_engine  # Track which engine processed this
             processed_snapshot_queue.put((processed, processing_time))
+            metrics.record_engine_latency(used_engine.replace("_fallback", ""), processing_time)
 
+        except KeyError as e:
+            metrics.record_error("analytics_worker_missing_field")
+            logger.error(f"Analytics worker missing field error: {e}")
+        except ValueError as e:
+            metrics.record_error("analytics_worker_value_error")
+            logger.error(f"Analytics worker value error: {e}")
         except Exception as e:
             metrics.record_error("analytics_worker_error")
-            logger.error(f"Analytics worker error: {e}")
+            logger.error(f"Analytics worker unexpected error: {e}", exc_info=True)
 
 
 # --------------------------------------------------
@@ -374,23 +492,29 @@ async def csv_replay_loop():
 async def replay_loop():
     global MODE
     logger.info("Attempting to connect to TimescaleDB...")
-
+    
+    conn = None
     try:
-        conn = get_connection()
-        cur = conn.cursor()
+        conn = await get_connection()
         MODE = "REPLAY"
         logger.info("Connected to DB. Starting Replay Loop.")
         
         QUERY_BATCH = """
             SELECT *
             FROM l2_orderbook
-            WHERE ts > %s
+            WHERE ts > $1
             ORDER BY ts
-            LIMIT %s
+            LIMIT $2
         """
         
     except Exception as e:
         logger.warning(f"DB Connection failed: {e}")
+        
+        # Release connection if acquired
+        if conn:
+            await return_connection(conn)
+            conn = None
+        
         logger.info("Checking for CSV dataset...")
         
         csv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "l2_clean.csv")
@@ -398,10 +522,6 @@ async def replay_loop():
             logger.info("CSV found. Switching to CSV REPLAY MODE.")
             MODE = "CSV_REPLAY"
             asyncio.create_task(csv_replay_loop())
-            # Start broadcaster not needed for CSV loop as it broadcasts directly? 
-            # Wait, csv_replay_loop broadcasts directly.
-            # But simulation_loop puts to queue.
-            # Let's keep it consistent.
             return
         else:
             logger.warning("CSV not found. Switching to SIMULATION MODE (Fallback)")
@@ -411,42 +531,83 @@ async def replay_loop():
             asyncio.create_task(broadcast_loop())
             return
 
-    while True:
-        if controller.state != "PLAYING":
-            await asyncio.sleep(0.1)
-            continue
+    consecutive_errors = 0
+    max_consecutive_errors = 5
+    
+    try:
+        while True:
+            try:
+                if controller.state != "PLAYING":
+                    await asyncio.sleep(0.1)
+                    continue
 
-        # Refill buffer if empty
-        if not replay_buffer:
-            last_ts = controller.cursor_ts or datetime.min
-            cur.execute(QUERY_BATCH, (last_ts, REPLAY_BATCH_SIZE))
-            rows = cur.fetchall()
+                # Refill buffer if empty
+                if not replay_buffer:
+                    last_ts = controller.cursor_ts or datetime.min
+                    
+                    try:
+                        rows = await conn.fetch(QUERY_BATCH, last_ts, REPLAY_BATCH_SIZE)
+                    except Exception as db_err:
+                        logger.error(f"Database query error: {db_err}")
+                        metrics.record_error("db_query_error")
+                        consecutive_errors += 1
+                        
+                        if consecutive_errors >= max_consecutive_errors:
+                            logger.error(f"Circuit breaker: {consecutive_errors} consecutive DB errors")
+                            MODE = "SIMULATION"
+                            if conn:
+                                await return_connection(conn)
+                                conn = None
+                            threading.Thread(target=simulation_loop, daemon=True).start()
+                            asyncio.create_task(broadcast_loop())
+                            break
+                        
+                        await asyncio.sleep(1.0)  # Back off before retry
+                        continue
 
-            if not rows:
-                logger.info("Replay finished")
-                controller.state = "STOPPED"
-                continue
+                    if not rows:
+                        logger.info("Replay finished")
+                        controller.stop()
+                        continue
+                    
+                    consecutive_errors = 0  # Reset on success
 
-            for r in rows:
-                replay_buffer.append(r)
+                    for r in rows:
+                        # Convert asyncpg.Record to dict
+                        replay_buffer.append(dict(r))
 
-        # Pop next row from buffer
-        row = replay_buffer.popleft()
-        controller.cursor_ts = row["ts"]
+                # Pop next row from buffer
+                row = replay_buffer.popleft()
+                controller.cursor_ts = row["ts"]
 
-        start_time = time.time()
-        
-        snapshot = db_row_to_snapshot(row)
+                start_time = time.time()
+                
+                snapshot = db_row_to_snapshot(row)
 
-        # Send to analytics worker (non-blocking)
-        try:
-            raw_snapshot_queue.put_nowait(snapshot)
-        except queue.Full:
-            metrics.record_error("analytics_queue_full")
+                # Send to analytics worker (non-blocking)
+                try:
+                    raw_snapshot_queue.put_nowait(snapshot)
+                except queue.Full:
+                    metrics.record_error("analytics_queue_full")
+                    logger.warning("Analytics queue full, dropping snapshot")
 
-        
-        # Replay speed (250 ms base)
-        await asyncio.sleep(0.25 / controller.speed)
+                # Replay speed (250 ms base)
+                await asyncio.sleep(0.25 / controller.speed)
+            
+            except Exception as loop_err:
+                logger.error(f"Error in replay loop iteration: {loop_err}")
+                metrics.record_error("replay_loop_iteration_error")
+                consecutive_errors += 1
+                
+                if consecutive_errors >= max_consecutive_errors:
+                    logger.error("Too many errors, breaking replay loop")
+                    break
+                
+                await asyncio.sleep(0.5)
+    
+    finally:
+        if conn:
+            await return_connection(conn)
 
 # --------------------------------------------------
 # Startup Hook
@@ -454,6 +615,9 @@ async def replay_loop():
 @app.on_event("startup")
 async def startup():
     controller.state = "PLAYING"
+    
+    # Initialize C++ engine with fallback
+    initialize_cpp_engine()
 
     # Start analytics worker
     threading.Thread(target=analytics_worker, daemon=True).start()
@@ -463,6 +627,19 @@ async def startup():
     asyncio.create_task(processed_broadcast_loop())
 
     logger.info("Backend started")
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    """Gracefully close database connections on shutdown."""
+    logger.info("Shutting down, closing database connections...")
+    try:
+        await asyncio.wait_for(close_all_connections(), timeout=3.0)
+        logger.info("Database connections closed successfully")
+    except asyncio.TimeoutError:
+        logger.warning("Database connection close timed out after 3s")
+    except Exception as e:
+        logger.error(f"Error during shutdown: {e}")
 
 
 # --------------------------------------------------
@@ -503,54 +680,56 @@ async def websocket_endpoint(websocket: WebSocket):
 # --------------------------------------------------
 @app.post("/replay/start")
 def start_replay():
-    controller.state = "PLAYING"
-    controller.cursor_ts = None
+    controller.start()
+    replay_buffer.clear()  # Clear buffer for fresh start
     logger.info("Replay started")
-    return {"status": "started"}
+    return {"status": "started", **controller.get_state()}
 
 @app.post("/replay/pause")
 def pause_replay():
-    controller.state = "PAUSED"
+    controller.pause()
     logger.info("Replay paused")
-    return {"status": "paused"}
+    return {"status": "paused", **controller.get_state()}
 
 @app.post("/replay/resume")
 def resume_replay():
-    controller.state = "PLAYING"
+    controller.resume()
     logger.info("Replay resumed")
-    return {"status": "resumed"}
+    return {"status": "resumed", **controller.get_state()}
 
 @app.post("/replay/stop")
 def stop_replay():
-    controller.state = "STOPPED"
-    controller.cursor_ts = None
+    controller.stop()
+    replay_buffer.clear()
+    data_buffer.clear()
     logger.info("Replay stopped")
-    return {"status": "stopped"}
+    return {"status": "stopped", **controller.get_state()}
 
 @app.post("/replay/speed/{value}")
 def set_speed(value: int):
-    controller.speed = max(1, value)
+    controller.set_speed(value)
     logger.info(f"Replay speed set to {controller.speed}x")
-    return {"speed": controller.speed}
+    return {"status": "success", "speed": controller.speed, **controller.get_state()}
+
+@app.get("/replay/state")
+def get_replay_state():
+    """Get current replay state."""
+    return controller.get_state()
 
 @app.post("/replay/goback/{seconds}")
 def go_back(seconds: float):
     """Rewind replay by specified seconds."""
     try:
-        if MODE != "REPLAY" or not controller.cursor_ts:
+        if MODE not in ["REPLAY", "CSV_REPLAY"]:
+            return {"status": "error", "message": "Go back only available in replay mode"}
+        
+        if controller.go_back(seconds):
+            replay_buffer.clear()
+            data_buffer.clear()
+            logger.info(f"Rewound replay by {seconds} seconds to {controller.cursor_ts}")
+            return {"status": "success", "message": f"Rewound by {seconds}s", **controller.get_state()}
+        else:
             return {"status": "error", "message": "Can only go back in DB replay mode"}
-        
-        # Calculate target timestamp
-        from datetime import timedelta
-        target_ts = controller.cursor_ts - timedelta(seconds=seconds)
-        
-        # Update cursor and clear replay buffer
-        controller.cursor_ts = target_ts
-        replay_buffer.clear()
-        
-        logger.info(f"Rewound replay by {seconds}s to {target_ts}")
-        return {"status": "success", "new_timestamp": str(target_ts)}
-    
     except Exception as e:
         logger.error(f"Go back error: {e}")
         return {"status": "error", "message": str(e)}
@@ -625,6 +804,136 @@ def get_alert_stats():
     """Get alert statistics and counts."""
     return engine.alert_manager.get_alert_stats()
 
+@app.get("/anomalies/quote-stuffing")
+def get_quote_stuffing_events():
+    """Get recent quote stuffing events (rapid order fire/cancel)."""
+    events = []
+    for snap in data_buffer:
+        if "anomalies" in snap:
+            for a in snap["anomalies"]:
+                if a.get("type") == "QUOTE_STUFFING":
+                    events.append({
+                        "timestamp": snap.get("timestamp"),
+                        "severity": a.get("severity"),
+                        "message": a.get("message"),
+                        "update_rate": a.get("update_rate"),
+                        "avg_rate": a.get("avg_rate"),
+                        "mid_price": snap.get("mid_price")
+                    })
+    return events
+
+@app.get("/anomalies/layering")
+def get_layering_events():
+    """Get recent layering/spoofing events (stacked fake orders)."""
+    events = []
+    for snap in data_buffer:
+        if "anomalies" in snap:
+            for a in snap["anomalies"]:
+                if a.get("type") == "LAYERING":
+                    events.append({
+                        "timestamp": snap.get("timestamp"),
+                        "severity": a.get("severity"),
+                        "message": a.get("message"),
+                        "side": a.get("side"),
+                        "score": a.get("score"),
+                        "large_order_count": a.get("large_order_count"),
+                        "mid_price": snap.get("mid_price")
+                    })
+    return events
+
+@app.get("/anomalies/momentum-ignition")
+def get_momentum_ignition_events():
+    """Get recent momentum ignition events (aggressive orders triggering algos)."""
+    events = []
+    for snap in data_buffer:
+        if "anomalies" in snap:
+            for a in snap["anomalies"]:
+                if a.get("type") == "MOMENTUM_IGNITION":
+                    events.append({
+                        "timestamp": snap.get("timestamp"),
+                        "severity": a.get("severity"),
+                        "message": a.get("message"),
+                        "price_change_pct": a.get("price_change_pct"),
+                        "volume": a.get("volume"),
+                        "direction": a.get("direction"),
+                        "mid_price": snap.get("mid_price")
+                    })
+    return events
+
+@app.get("/anomalies/wash-trading")
+def get_wash_trading_events():
+    """Get recent wash trading events (self-trading patterns)."""
+    events = []
+    for snap in data_buffer:
+        if "anomalies" in snap:
+            for a in snap["anomalies"]:
+                if a.get("type") == "WASH_TRADING":
+                    events.append({
+                        "timestamp": snap.get("timestamp"),
+                        "severity": a.get("severity"),
+                        "message": a.get("message"),
+                        "avg_volume": a.get("avg_volume"),
+                        "volume_variance": a.get("volume_variance"),
+                        "pattern_count": a.get("pattern_count"),
+                        "mid_price": snap.get("mid_price")
+                    })
+    return events
+
+@app.get("/anomalies/iceberg-orders")
+def get_iceberg_order_events():
+    """Get recent iceberg order detections (hidden large orders)."""
+    events = []
+    for snap in data_buffer:
+        if "anomalies" in snap:
+            for a in snap["anomalies"]:
+                if a.get("type") == "ICEBERG_ORDER":
+                    events.append({
+                        "timestamp": snap.get("timestamp"),
+                        "severity": a.get("severity"),
+                        "message": a.get("message"),
+                        "price": a.get("price"),
+                        "side": a.get("side"),
+                        "fill_count": a.get("fill_count"),
+                        "total_volume": a.get("total_volume"),
+                        "avg_fill_size": a.get("avg_fill_size"),
+                        "mid_price": snap.get("mid_price")
+                    })
+    return events
+
+@app.get("/anomalies/summary")
+def get_anomalies_summary():
+    """Get summary statistics of all advanced anomaly types."""
+    summary = {
+        "quote_stuffing": 0,
+        "layering": 0,
+        "momentum_ignition": 0,
+        "wash_trading": 0,
+        "iceberg_orders": 0,
+        "spoofing": 0,
+        "liquidity_gaps": 0
+    }
+    
+    for snap in data_buffer:
+        if "anomalies" in snap:
+            for a in snap["anomalies"]:
+                anomaly_type = a.get("type", "").lower().replace("_", "")
+                if "quotestuffing" in anomaly_type:
+                    summary["quote_stuffing"] += 1
+                elif "layering" in anomaly_type:
+                    summary["layering"] += 1
+                elif "momentumignition" in anomaly_type:
+                    summary["momentum_ignition"] += 1
+                elif "washtrading" in anomaly_type:
+                    summary["wash_trading"] += 1
+                elif "icebergorder" in anomaly_type:
+                    summary["iceberg_orders"] += 1
+                elif "spoofing" in anomaly_type:
+                    summary["spoofing"] += 1
+                elif "liquiditygap" in anomaly_type:
+                    summary["liquidity_gaps"] += 1
+    
+    return summary
+
 @app.get("/snapshot/latest")
 def get_latest_snapshot():
     if not data_buffer:
@@ -683,11 +992,44 @@ def metrics_dashboard():
     stats["buffer_size"] = len(data_buffer)
     stats["controller_state"] = controller.state
     stats["replay_speed"] = controller.speed
+    stats["db_pool"] = get_pool_stats()
     
     return stats
 
+@app.get("/db/pool")
+def database_pool_stats():
+    """Get detailed database connection pool statistics."""
+    return get_pool_stats()
+
+@app.get("/db/health")
+def database_health():
+    """Check database connection pool health."""
+    pool_stats = get_pool_stats()
+    
+    is_healthy = True
+    issues = []
+    
+    if pool_stats["status"] != "active":
+        is_healthy = False
+        issues.append("Pool not initialized")
+    elif pool_stats["failed_acquisitions"] > 10:
+        is_healthy = False
+        issues.append(f"High failure rate: {pool_stats['failed_acquisitions']} failed acquisitions")
+    elif pool_stats["utilization_percent"] > 90:
+        issues.append(f"High utilization: {pool_stats['utilization_percent']}%")
+    
+    if pool_stats["status"] == "active" and pool_stats.get("avg_acquisition_time_ms", 0) > 50:
+        issues.append(f"Slow acquisitions: {pool_stats['avg_acquisition_time_ms']}ms avg")
+    
+    return {
+        "status": "healthy" if is_healthy else "degraded",
+        "issues": issues,
+        "pool_stats": pool_stats
+    }
+
 @app.get("/benchmark/latency")
 def latency_benchmark():
+    """Compare Python vs C++ engine performance."""
     def avg(x): return sum(x) / len(x) if x else 0
 
     return {
@@ -696,4 +1038,221 @@ def latency_benchmark():
         "python_samples": len(metrics.py_latency),
         "cpp_samples": len(metrics.cpp_latency),
         "winner": "cpp" if avg(metrics.cpp_latency) < avg(metrics.py_latency) else "python"
+    }
+
+@app.get("/engine/status")
+def engine_status():
+    """Get current analytics engine status and configuration."""
+    return {
+        "active_engine": engine_mode,
+        "cpp_enabled": USE_CPP_ENGINE,
+        "cpp_host": CPP_ENGINE_HOST,
+        "cpp_port": CPP_ENGINE_PORT,
+        "cpp_available": cpp_client is not None,
+        "fallback_available": True  # Python engine always available
+    }
+
+@app.post("/engine/switch/{target_engine}")
+def switch_engine(target_engine: str):
+    """Manually switch between C++ and Python engines."""
+    global engine_mode, cpp_client
+    
+    if target_engine not in ["cpp", "python"]:
+        return {"status": "error", "message": "Invalid engine. Choose 'cpp' or 'python'"}
+    
+    if target_engine == "cpp":
+        if not USE_CPP_ENGINE:
+            return {"status": "error", "message": "C++ engine disabled in configuration"}
+        
+        # Try to reinitialize C++ engine (uses lock internally)
+        success = initialize_cpp_engine()
+        if success:
+            return {"status": "success", "message": "Switched to C++ engine", "engine": engine_mode}
+        else:
+            return {"status": "error", "message": "C++ engine unavailable, using Python", "engine": engine_mode}
+    
+    elif target_engine == "python":
+        with engine_state_lock:
+            engine_mode = "python"
+        logger.info("Manually switched to Python engine")
+        return {"status": "success", "message": "Switched to Python engine", "engine": engine_mode}
+
+@app.post("/engine/benchmark")
+async def run_benchmark():
+    """Run comprehensive benchmark comparing both engines."""
+    if engine_mode != "cpp" or cpp_client is None:
+        return {"status": "error", "message": "C++ engine not available for benchmarking"}
+    
+    test_snapshot = {
+        "timestamp": "2024-01-01T00:00:00",
+        "bids": [[100.0 - i*0.01, 100 + i*10] for i in range(10)],
+        "asks": [[100.0 + i*0.01, 100 + i*10] for i in range(10)],
+        "mid_price": 100.0
+    }
+    
+    # Warmup
+    for _ in range(10):
+        engine.process_snapshot(test_snapshot)
+        cpp_client.process_snapshot(test_snapshot)
+    
+    # Benchmark Python
+    py_times = []
+    for _ in range(100):
+        start = time.time()
+        engine.process_snapshot(test_snapshot)
+        py_times.append((time.time() - start) * 1000)
+    
+    # Benchmark C++
+    cpp_times = []
+    for _ in range(100):
+        try:
+            result = cpp_client.process_snapshot(test_snapshot)
+            cpp_times.append(result.get("latency_ms", 0))
+        except Exception as e:
+            return {"status": "error", "message": f"C++ benchmark failed: {e}"}
+    
+    py_avg = sum(py_times) / len(py_times)
+    cpp_avg = sum(cpp_times) / len(cpp_times)
+    
+    return {
+        "status": "success",
+        "python": {
+            "avg_ms": round(py_avg, 3),
+            "min_ms": round(min(py_times), 3),
+            "max_ms": round(max(py_times), 3),
+            "p50_ms": round(sorted(py_times)[50], 3),
+            "p95_ms": round(sorted(py_times)[95], 3),
+            "p99_ms": round(sorted(py_times)[99], 3)
+        },
+        "cpp": {
+            "avg_ms": round(cpp_avg, 3),
+            "min_ms": round(min(cpp_times), 3),
+            "max_ms": round(max(cpp_times), 3),
+            "p50_ms": round(sorted(cpp_times)[50], 3),
+            "p95_ms": round(sorted(cpp_times)[95], 3),
+            "p99_ms": round(sorted(cpp_times)[99], 3)
+        },
+        "speedup": round(py_avg / cpp_avg, 2) if cpp_avg > 0 else 0,
+        "winner": "cpp" if cpp_avg < py_avg else "python"
+    }
+# Priority #14: Trade Data Integration API Endpoints
+@app.get("/trades/classification")
+def get_trade_classification():
+    """Get recent trade classifications (buy/sell side)."""
+    trades = []
+    for snap in data_buffer[-100:]:  # Last 100 snapshots
+        if snap.get("trade_classified"):
+            trades.append({
+                "timestamp": snap.get("timestamp"),
+                "price": snap.get("last_trade_price"),
+                "volume": snap.get("trade_volume"),
+                "side": snap.get("trade_side"),
+                "mid_price": snap.get("mid_price"),
+                "effective_spread": snap.get("effective_spread")
+            })
+    return {"trades": trades, "count": len(trades)}
+
+@app.get("/trades/spreads")
+def get_trade_spreads():
+    """Get effective and realized spreads over time."""
+    spreads = []
+    for snap in data_buffer[-100:]:
+        if snap.get("trade_classified"):
+            spreads.append({
+                "timestamp": snap.get("timestamp"),
+                "effective_spread": snap.get("effective_spread", 0),
+                "realized_spread": snap.get("realized_spread", 0),
+                "trade_side": snap.get("trade_side"),
+                "mid_price": snap.get("mid_price")
+            })
+    
+    # Calculate statistics
+    if spreads:
+        effective = [s["effective_spread"] for s in spreads]
+        realized = [s["realized_spread"] for s in spreads]
+        
+        stats = {
+            "effective_spread": {
+                "mean": round(np.mean(effective), 4),
+                "std": round(np.std(effective), 4),
+                "min": round(min(effective), 4),
+                "max": round(max(effective), 4)
+            },
+            "realized_spread": {
+                "mean": round(np.mean(realized), 4),
+                "std": round(np.std(realized), 4),
+                "min": round(min(realized), 4),
+                "max": round(max(realized), 4)
+            }
+        }
+    else:
+        stats = {
+            "effective_spread": {"mean": 0, "std": 0, "min": 0, "max": 0},
+            "realized_spread": {"mean": 0, "std": 0, "min": 0, "max": 0}
+        }
+    
+    return {
+        "spreads": spreads,
+        "count": len(spreads),
+        "statistics": stats
+    }
+
+@app.get("/trades/vpin")
+def get_vpin():
+    """Get V-PIN (Volume-Synchronized Probability of Informed Trading) history."""
+    vpin_data = []
+    for snap in data_buffer[-100:]:
+        if "vpin" in snap and snap["vpin"] > 0:
+            vpin_data.append({
+                "timestamp": snap.get("timestamp"),
+                "vpin": snap["vpin"],
+                "mid_price": snap.get("mid_price"),
+                "obi": snap.get("obi", 0)
+            })
+    
+    # Calculate statistics
+    if vpin_data:
+        vpins = [v["vpin"] for v in vpin_data]
+        stats = {
+            "mean": round(np.mean(vpins), 4),
+            "std": round(np.std(vpins), 4),
+            "min": round(min(vpins), 4),
+            "max": round(max(vpins), 4),
+            "current": round(vpins[-1], 4) if vpins else 0
+        }
+    else:
+        stats = {"mean": 0, "std": 0, "min": 0, "max": 0, "current": 0}
+    
+    return {
+        "vpin_history": vpin_data,
+        "count": len(vpin_data),
+        "statistics": stats,
+        "interpretation": {
+            "low": "V-PIN < 0.3: Low informed trading probability",
+            "medium": "0.3 ≤ V-PIN < 0.6: Moderate informed trading",
+            "high": "V-PIN ≥ 0.6: High informed trading probability (potential adverse selection)"
+        }
+    }
+
+@app.get("/trades/anomalies")
+def get_trade_anomalies():
+    """Get trade-level anomalies (unusual sizes, rapid trading, etc.)."""
+    trade_anomalies = []
+    for snap in data_buffer[-100:]:
+        if "anomalies" in snap:
+            for a in snap["anomalies"]:
+                if a.get("type") in ["UNUSUAL_TRADE_SIZE", "RAPID_TRADING"]:
+                    trade_anomalies.append({
+                        "timestamp": snap.get("timestamp"),
+                        "type": a.get("type"),
+                        "severity": a.get("severity"),
+                        "message": a.get("message"),
+                        "details": {
+                            k: v for k, v in a.items() 
+                            if k not in ["type", "severity", "message", "timestamp"]
+                        }
+                    })
+    return {
+        "anomalies": trade_anomalies,
+        "count": len(trade_anomalies)
     }

@@ -81,7 +81,7 @@ export default function CanvasPriceChart({
     const getY = (price) =>
       PADDING.top + CHART_HEIGHT - ((price - yMin) / yRange) * CHART_HEIGHT;
 
-    // --- Draw Grid ---
+    // --- Draw Grid with Axis Labels ---
     ctx.strokeStyle = "#1e293b";
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -90,7 +90,7 @@ export default function CanvasPriceChart({
       ctx.moveTo(PADDING.left, y);
       ctx.lineTo(w - PADDING.right, y);
 
-      // Y-Axis Labels on right side
+      // Y-Axis Price Labels on right side
       const priceLabel = yMax - i * (yRange / 4);
       ctx.fillStyle = "#64748b";
       ctx.font = "10px sans-serif";
@@ -98,6 +98,19 @@ export default function CanvasPriceChart({
       ctx.fillText(formatPrice(priceLabel), w - PADDING.right + 5, y + 3);
     }
     ctx.stroke();
+
+    // X-Axis Time Labels
+    ctx.fillStyle = "#64748b";
+    ctx.font = "9px sans-serif";
+    ctx.textAlign = "center";
+    const timeLabels = [0, Math.floor(data.length / 2), data.length - 1];
+    timeLabels.forEach(idx => {
+      if (idx >= 0 && idx < data.length) {
+        const x = getX(idx);
+        const time = formatTime(data[idx].timestamp);
+        ctx.fillText(time, x, h - 5);
+      }
+    });
 
     // --- Draw Area Gradient ---
     const gradient = ctx.createLinearGradient(
@@ -143,6 +156,29 @@ export default function CanvasPriceChart({
     }
     ctx.stroke();
     ctx.setLineDash([]);
+
+    // --- Draw Trade Markers ---
+    data.forEach((d, i) => {
+      if (d.trade_volume > 0) {
+        const x = getX(i);
+        const y = getY(d.last_trade_price || d.mid_price);
+        // Scale radius by volume
+        const radius = Math.min(Math.max(Math.log10(d.trade_volume || 10), 2), 6); 
+        
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, 2 * Math.PI);
+        
+        let color = '#fbbf24'; // Yellow default
+        if (d.trade_side === 'buy') color = '#4ade80';
+        else if (d.trade_side === 'sell') color = '#f87171';
+        
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    });
 
     // --- Draw Crosshair & Tooltip ---
     if (mousePos) {

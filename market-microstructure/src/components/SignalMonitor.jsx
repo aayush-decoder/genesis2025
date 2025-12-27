@@ -21,6 +21,7 @@ export default function SignalMonitor({ snapshot }) {
   };
 
   const getTypeIcon = (type) => {
+    // Standardized to use 'type' field consistently
     switch (type) {
       case 'LIQUIDITY_GAP': return '💧';
       case 'SPOOFING': return '🎭';
@@ -28,6 +29,8 @@ export default function SignalMonitor({ snapshot }) {
       case 'HEAVY_IMBALANCE': return '⚖️';
       case 'REGIME_STRESS': return '📊';
       case 'REGIME_CRISIS': return '🚨';
+      case 'LARGE_ORDER': return '📦';
+      case 'SPREAD_SHOCK': return '📏';
       default: return '⚠️';
     }
   };
