@@ -7,7 +7,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(__file__))
 
-from analytics import AnalyticsEngine
+from analytics_core import AnalyticsEngine
 
 def test_liquidity_gaps_with_metrics():
     """Test liquidity gap detection with graphing metrics"""

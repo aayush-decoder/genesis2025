@@ -5,7 +5,7 @@ Tests Lee-Ready algorithm, effective/realized spreads, V-PIN, and trade anomalie
 import pytest
 import time
 from datetime import datetime
-from analytics import TradeClassifier, AnalyticsEngine
+from analytics_core import TradeClassifier, AnalyticsEngine
 
 
 class TestLeReady:
