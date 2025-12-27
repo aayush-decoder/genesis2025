@@ -22,5 +22,14 @@ services:
       - "50051:50051"
     restart: unless-stopped
 
+  market-ingestor:
+    build:
+      context: ../market_ingestor
+    container_name: market-ingestor
+    ports:
+      - "6000:6000"
+    restart: unless-stopped
+
+
 volumes:
   tsdata:

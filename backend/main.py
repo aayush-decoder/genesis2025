@@ -30,6 +30,9 @@ from collections import defaultdict, deque
 from analytics.analytics_client import CppAnalyticsClient
 import grpc
 
+from rpc_stubs import live_pb2, live_pb2_grpc
+
+
 
 USE_CPP_ENGINE = os.getenv("USE_CPP_ENGINE", "true").lower() == "true"  # Auto-enable C++ engine
 CPP_ENGINE_HOST = os.getenv("CPP_ENGINE_HOST", "localhost")
@@ -407,6 +410,56 @@ def analytics_worker():
             logger.error(f"Analytics worker unexpected error: {e}", exc_info=True)
 
 
+# live ingestion
+async def live_grpc_loop():
+    global MODE
+    
+    logger.info("Starting live gRPC loop...")
+    
+    while True:  # Retry loop
+        try:
+            logger.info("Attempting to connect to market_ingestor...")
+            async with grpc.aio.insecure_channel("localhost:6000") as channel:
+                stub = live_pb2_grpc.LiveFeedServiceStub(channel)
+                logger.info("Connected to market_ingestor gRPC service")
+
+                async for msg in stub.StreamSnapshots(
+                    live_pb2.SubscribeRequest(source="BINANCE")
+                ):
+                    if MODE != "LIVE":
+                        logger.debug(f"Skipping message, MODE={MODE}")
+                        continue
+
+                    logger.info(f"Received live snapshot: symbol={msg.symbol}, mid_price={msg.mid_price}")
+
+                    snapshot = {
+                        # analytics timestamp remains internal / synthetic
+                        "timestamp": datetime.utcnow().isoformat(),
+
+                        # LIVE-specific timestamps
+                        "exchange_ts": msg.exchange_ts,
+                        "ingest_ts": msg.ingest_ts,
+
+                        "bids": [[l.price, l.volume] for l in msg.bids],
+                        "asks": [[l.price, l.volume] for l in msg.asks],
+                        "mid_price": msg.mid_price,
+                        "symbol": msg.symbol,
+                        "source": msg.source
+                    }
+
+                    try:
+                        raw_snapshot_queue.put_nowait(snapshot)
+                        logger.debug("Successfully queued live snapshot")
+                    except queue.Full:
+                        metrics.record_error("live_queue_full")
+                        logger.warning("Live snapshot queue is full")
+                        
+        except Exception as e:
+            logger.error(f"Live gRPC loop error: {e}")
+            logger.info("Retrying connection to market_ingestor in 5 seconds...")
+            await asyncio.sleep(5)  # Wait before retrying
+
+
 # --------------------------------------------------
 # CSV Replay Loop (FALLBACK 2)
 # --------------------------------------------------
@@ -644,28 +697,6 @@ async def replay_loop():
                 logger.debug(f"Connection cleanup during shutdown: {e}")
 
 
-async def dummy_live_loop():
-    """
-    Temporary LIVE generator to validate pipeline.
-    Replace later with gRPC ingestion.
-    """
-    await asyncio.sleep(2)  # let system boot
-
-    while True:
-        if MODE == "LIVE":
-            mid = 100 + np.random.randn() * 0.2
-            snapshot = {
-                "timestamp": datetime.utcnow().isoformat(),
-                "bids": [[mid - 0.1, 50], [mid - 0.2, 30]],
-                "asks": [[mid + 0.1, 45], [mid + 0.2, 35]],
-                "mid_price": mid,
-                "symbol": ACTIVE_SYMBOL or "BTCUSDT",
-                "source": "DUMMY"
-            }
-            await live_snapshot_ingest(snapshot)
-
-        await asyncio.sleep(0.25)
-
 
 # --------------------------------------------------
 # Startup Hook
@@ -684,8 +715,7 @@ async def startup():
     asyncio.create_task(replay_loop())
     asyncio.create_task(processed_broadcast_loop())
 
-    # 🔹 TEMP LIVE generator (will be replaced by market_ingestor)
-    asyncio.create_task(dummy_live_loop())
+    asyncio.create_task(live_grpc_loop())
 
     logger.info("Backend started")
 
@@ -778,7 +808,7 @@ def get_replay_state():
     return controller.get_state()
 
 @app.post("/mode")
-def set_mode(payload: dict):
+async def set_mode(payload: dict):
     global MODE, ACTIVE_SYMBOL, ACTIVE_SOURCE
 
     mode = payload.get("mode")
@@ -793,13 +823,25 @@ def set_mode(payload: dict):
     if mode == "LIVE":
         ACTIVE_SYMBOL = symbol or "BTCUSDT"
         ACTIVE_SOURCE = source
+        
+        # Notify market_ingestor about symbol change
+        try:
+            async with grpc.aio.insecure_channel("localhost:6000") as channel:
+                stub = live_pb2_grpc.LiveFeedServiceStub(channel)
+                response = await stub.ChangeSymbol(
+                    live_pb2.ChangeSymbolRequest(symbol=ACTIVE_SYMBOL)
+                )
+                if not response.success:
+                    logger.warning(f"Failed to change symbol in market_ingestor: {response.message}")
+        except Exception as e:
+            logger.error(f"Error communicating with market_ingestor: {e}")
     else:
         ACTIVE_SYMBOL = None
         ACTIVE_SOURCE = None
 
     logger.info(f"Switched MODE={MODE}, SYMBOL={ACTIVE_SYMBOL}")
     return {
-        "status": "ok",
+        "status": "success",
         "mode": MODE,
         "symbol": ACTIVE_SYMBOL,
         "source": ACTIVE_SOURCE
