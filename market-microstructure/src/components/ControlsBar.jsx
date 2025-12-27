@@ -65,7 +65,7 @@ export default function ControlsBar({
     <>
       <div style={{
         display: 'flex',
-        alignItems: 'center',
+        // alignItems: 'center',
         gap: '8px',
         padding: '8px',
         alignItems: 'center',

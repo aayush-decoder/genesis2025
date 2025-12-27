@@ -20,7 +20,6 @@ from collections import defaultdict, deque
 
 from grpc_client.analytics_client import CppAnalyticsClient
 
-
 USE_CPP_ENGINE = False  # feature flag - C++ engine is stub, use Python
 
 
