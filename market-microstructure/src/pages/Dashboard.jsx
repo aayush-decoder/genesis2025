@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { Loader2 } from 'lucide-react';
 import DashboardLayout from "../layout/DashboardLayout";
 import Toast from "../components/Toast";
 // import DataExport from "../components/DataExport";
@@ -208,9 +209,13 @@ export default function Dashboard() {
             border: '2px solid #334155',
             color: '#ffffff',
             fontSize: '16px',
-            fontWeight: 600
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px'
           }}>
-            ⏳ Processing...
+            <Loader2 size={20} className="animate-spin" />
+            Processing...
           </div>
         </div>
       )}

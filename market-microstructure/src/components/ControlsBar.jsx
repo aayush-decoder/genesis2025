@@ -1,8 +1,15 @@
 import { useState } from "react";
-import { FaDownload, FaBackward, FaFastForward, FaPause  } from "react-icons/fa";
-import { IoSettingsSharp, IoTime  } from "react-icons/io5";
-import { FaFileCsv } from "react-icons/fa6";
-import { BsFiletypeJson } from "react-icons/bs";
+import { 
+  Download, 
+  SkipBack, 
+  FastForward, 
+  Pause, 
+  Settings, 
+  Clock, 
+  FileText, 
+  FileJson,
+  Play
+} from 'lucide-react';
 
 export default function ControlsBar({ 
   onPlay, 
@@ -206,7 +213,7 @@ export default function ControlsBar({
             alignItems: 'center',
             gap: '5px'
           }}>
-            <IoTime /> {formatTimestamp(currentTimestamp)}
+            <Clock size={14} /> {formatTimestamp(currentTimestamp)}
           </div>
         )}
         
@@ -219,7 +226,7 @@ export default function ControlsBar({
           }}
           title={isPlaying ? 'Pause' : (isPaused ? 'Resume' : 'Play')}
         >
-          {isPlaying ? <FaPause /> : '▶'}
+          {isPlaying ? <Pause size={16} /> : <Play size={16} />}
         </button>
 
         {/* Speed Toggle Button */}
@@ -231,7 +238,7 @@ export default function ControlsBar({
           }}
           title={`Speed: ${speed}x (Toggle to ${speed === 1 ? speedUpValue : 1}x)`}
         >
-          <FaFastForward />
+          <FastForward size={16} />
         </button>
 
         {/* Go Back Button */}
@@ -240,7 +247,7 @@ export default function ControlsBar({
           style={buttonStyle}
           title={`Go back ${goBackSeconds}s`}
         >
-          <FaBackward />
+          <SkipBack size={16} />
         </button>
 
         {/* Download Button with Dropdown */}
@@ -253,7 +260,7 @@ export default function ControlsBar({
             }}
             title="Download data"
           >
-            <FaDownload />
+            <Download size={16} />
           </button>
 
           {/* Download Dropdown Menu */}
@@ -284,12 +291,15 @@ export default function ControlsBar({
                   fontWeight: '500',
                   textAlign: 'left',
                   transition: 'background-color 0.2s',
-                  borderBottom: '1px solid #334155'
+                  borderBottom: '1px solid #334155',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
                 }}
                 onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#334155'}
                 onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
               >
-                <FaFileCsv /> CSV
+                <FileText size={14} /> CSV
               </button>
               <button
                 onClick={handleDownloadJSON}
@@ -303,12 +313,15 @@ export default function ControlsBar({
                   fontSize: '13px',
                   fontWeight: '500',
                   textAlign: 'left',
-                  transition: 'background-color 0.2s'
+                  transition: 'background-color 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
                 }}
                 onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#334155'}
                 onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
               >
-                <BsFiletypeJson /> JSON
+                <FileJson size={14} /> JSON
               </button>
             </div>
           )}
@@ -320,7 +333,7 @@ export default function ControlsBar({
           style={buttonStyle}
           title="Settings"
         >
-          <IoSettingsSharp />
+          <Settings size={16} />
         </button>
       </div>
 

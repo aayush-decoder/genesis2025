@@ -10,6 +10,10 @@ from typing import List
 import os
 import pandas as pd
 import numpy as np
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 from analytics_core import AnalyticsEngine, db_row_to_snapshot, MarketSimulator
 from replay import ReplayController

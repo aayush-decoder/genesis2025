@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Menu, ChevronLeft, ChevronRight, Maximize2, X } from 'lucide-react';
 import ControlsBar from "../components/ControlsBar";
 import CanvasPriceChart from "../components/CanvasPriceChart";
 import CanvasHeatmap from "../components/CanvasHeatmap";
@@ -240,7 +241,7 @@ export default function DashboardLayout({
           e.currentTarget.style.backgroundColor = "#334155";
         }}
       >
-        ☰
+        <Menu size={18} />
       </button>
 
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
@@ -400,7 +401,7 @@ export default function DashboardLayout({
                     (e.currentTarget.style.backgroundColor = "#334155")
                   }
                 >
-                  ◀
+                  <ChevronLeft size={12} />
                 </button>
                 <button
                   onClick={handleNextFeature}
@@ -421,7 +422,7 @@ export default function DashboardLayout({
                     (e.currentTarget.style.backgroundColor = "#334155")
                   }
                 >
-                  ▶
+                  <ChevronRight size={12} />
                 </button>
                 <button
                   onClick={handleOpenModal}
@@ -442,7 +443,7 @@ export default function DashboardLayout({
                     (e.currentTarget.style.backgroundColor = "#334155")
                   }
                 >
-                  ⛶
+                  <Maximize2 size={11} />
                 </button>
               </div>
             </div>
@@ -607,6 +608,9 @@ export default function DashboardLayout({
                     fontSize: "14px",
                     fontWeight: "600",
                     transition: "all 0.2s",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
                   }}
                   onMouseEnter={(e) =>
                     (e.currentTarget.style.backgroundColor = "#dc2626")
@@ -615,7 +619,7 @@ export default function DashboardLayout({
                     (e.currentTarget.style.backgroundColor = "#ef4444")
                   }
                 >
-                  ✕ Close
+                  <X size={14} /> Close
                 </button>
               </div>
 

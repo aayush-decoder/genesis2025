@@ -1,11 +1,20 @@
 import { useState } from 'react';
+import { 
+  BarChart3, 
+  TrendingUp, 
+  FileText, 
+  Settings, 
+  TrendingDown, 
+  X, 
+  User 
+} from 'lucide-react';
 
 export default function Sidebar({ isOpen, onClose }) {
   const menuItems = [
-    { id: 'dashboard', icon: '📊', label: 'Dashboard', active: true },
-    { id: 'analytics', icon: '📈', label: 'Analytics', active: false },
-    { id: 'reports', icon: '📄', label: 'Reports', active: false },
-    { id: 'settings', icon: '⚙️', label: 'Settings', active: false },
+    { id: 'dashboard', icon: BarChart3, label: 'Dashboard', active: true },
+    { id: 'analytics', icon: TrendingUp, label: 'Analytics', active: false },
+    { id: 'reports', icon: FileText, label: 'Reports', active: false },
+    { id: 'settings', icon: Settings, label: 'Settings', active: false },
   ];
 
   const [activeItem, setActiveItem] = useState('dashboard');
@@ -69,7 +78,7 @@ export default function Sidebar({ isOpen, onClose }) {
                 fontSize: '20px',
               }}
             >
-              📉
+              <TrendingDown size={20} color="white" />
             </div>
             <div>
               <h2
@@ -117,7 +126,7 @@ export default function Sidebar({ isOpen, onClose }) {
               e.currentTarget.style.color = '#94a3b8';
             }}
           >
-            ✕
+            <X size={20} />
           </button>
         </div>
 
@@ -185,7 +194,9 @@ export default function Sidebar({ isOpen, onClose }) {
                   }
                 }}
               >
-                <span style={{ fontSize: '18px' }}>{item.icon}</span>
+                <span style={{ fontSize: '18px' }}>
+                  <item.icon size={18} />
+                </span>
                 <span>{item.label}</span>
               </button>
             ))}
@@ -283,7 +294,7 @@ export default function Sidebar({ isOpen, onClose }) {
               fontSize: '16px',
             }}
           >
-            👤
+            <User size={16} color="white" />
           </div>
           <div style={{ flex: 1 }}>
             <p
