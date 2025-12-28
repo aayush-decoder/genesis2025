@@ -30,6 +30,9 @@ from collections import defaultdict, deque
 from analytics.analytics_client import CppAnalyticsClient
 import grpc
 
+from rpc_stubs import live_pb2, live_pb2_grpc
+
+
 
 USE_CPP_ENGINE = os.getenv("USE_CPP_ENGINE", "true").lower() == "true"  # Auto-enable C++ engine
 CPP_ENGINE_HOST = os.getenv("CPP_ENGINE_HOST", "localhost")
@@ -129,7 +132,8 @@ class MetricsCollector:
             "python_avg_latency_ms": round(py_avg, 3),
             "cpp_samples": len(self.cpp_latency),
             "python_samples": len(self.py_latency),
-            "performance_improvement": f"{(py_avg / cpp_avg):.1f}x" if cpp_avg > 0 and py_avg > 0 else "N/A"
+            "performance_improvement": f"{(py_avg / cpp_avg):.1f}x" if cpp_avg > 0 and py_avg > 0 else "N/A",
+            "adaptive_processor": adaptive_processor.get_stats()  # Add adaptive processing stats
         }
 
 metrics = MetricsCollector()
@@ -201,7 +205,9 @@ def initialize_cpp_engine():
 MAX_BUFFER = 100
 data_buffer: List[dict] = []
 simulation_queue = queue.Queue()
-MODE = "UNKNOWN" # "REPLAY" or "SIMULATION"
+MODE = "REPLAY"  # REPLAY | LIVE | SIMULATION
+ACTIVE_SOURCE = None   # e.g. "BINANCE"
+ACTIVE_SYMBOL = None   # e.g. "BTCUSDT"
 
 # --------------------------------------------------
 # DB Replay Buffer (LATENCY FIX #1)
@@ -214,6 +220,63 @@ replay_buffer = deque()
 # --------------------------------------------------
 raw_snapshot_queue = queue.Queue(maxsize=2000)
 processed_snapshot_queue = queue.Queue(maxsize=2000)
+
+class AdaptiveProcessor:
+    """Adaptive analytics processor that handles slow engines gracefully"""
+    def __init__(self):
+        self.processing_times = []
+        self.slow_processing_threshold = 100  # ms
+        self.adaptive_mode = False
+        self.skip_counter = 0
+        self.skip_ratio = 1  # Process every Nth snapshot when adaptive
+        
+    def should_process(self, snapshot):
+        """Decide if snapshot should be processed based on system load"""
+        if not self.adaptive_mode:
+            return True
+            
+        # In adaptive mode, skip some snapshots to catch up
+        self.skip_counter += 1
+        if self.skip_counter >= self.skip_ratio:
+            self.skip_counter = 0
+            return True
+        return False
+    
+    def record_processing_time(self, processing_time_ms):
+        """Record processing time and adjust adaptive mode"""
+        self.processing_times.append(processing_time_ms)
+        
+        # Keep only recent samples
+        if len(self.processing_times) > 20:
+            self.processing_times.pop(0)
+        
+        # Calculate average processing time
+        if len(self.processing_times) >= 5:
+            avg_time = sum(self.processing_times[-5:]) / 5
+            
+            # Enter adaptive mode if processing is consistently slow
+            if avg_time > self.slow_processing_threshold and not self.adaptive_mode:
+                self.adaptive_mode = True
+                self.skip_ratio = min(3, int(avg_time / 50))  # Skip more for slower processing
+                logger.warning(f"Entering adaptive processing mode - skipping {self.skip_ratio-1}/{self.skip_ratio} snapshots")
+            
+            # Exit adaptive mode if processing speeds up
+            elif avg_time < self.slow_processing_threshold * 0.7 and self.adaptive_mode:
+                self.adaptive_mode = False
+                self.skip_counter = 0
+                logger.info("Exiting adaptive processing mode - processing speed recovered")
+    
+    def get_stats(self):
+        """Get adaptive processor statistics"""
+        avg_time = sum(self.processing_times) / len(self.processing_times) if self.processing_times else 0
+        return {
+            "adaptive_mode": self.adaptive_mode,
+            "skip_ratio": self.skip_ratio if self.adaptive_mode else 1,
+            "avg_processing_time_ms": round(avg_time, 2),
+            "recent_samples": len(self.processing_times)
+        }
+
+adaptive_processor = AdaptiveProcessor()
 
 
 # --------------------------------------------------
@@ -317,7 +380,7 @@ async def processed_broadcast_loop():
 
 
 def analytics_worker():
-    """Runs heavy analytics off the event loop."""
+    """Runs heavy analytics off the event loop with adaptive processing."""
     global engine_mode, cpp_client
     logger.info(f"Analytics worker started (engine: {engine_mode})")
     
@@ -329,6 +392,10 @@ def analytics_worker():
             snapshot = raw_snapshot_queue.get()
             if snapshot is None:
                 continue
+
+            # Check if we should process this snapshot (adaptive mode)
+            if not adaptive_processor.should_process(snapshot):
+                continue  # Skip processing to catch up
 
             processing_start = time.time()
             used_engine = "python"  # Default
@@ -389,6 +456,9 @@ def analytics_worker():
                 processing_time = (time.time() - processing_start) * 1000
                 used_engine = "python"
 
+            # Record processing time for adaptive mode
+            adaptive_processor.record_processing_time(processing_time)
+
             processed = sanitize(processed)
             processed["engine"] = used_engine  # Track which engine processed this
             processed_snapshot_queue.put((processed, processing_time))
@@ -403,6 +473,56 @@ def analytics_worker():
         except Exception as e:
             metrics.record_error("analytics_worker_error")
             logger.error(f"Analytics worker unexpected error: {e}", exc_info=True)
+
+
+# live ingestion
+async def live_grpc_loop():
+    global MODE
+    
+    logger.info("Starting live gRPC loop...")
+    
+    while True:  # Retry loop
+        try:
+            logger.info("Attempting to connect to market_ingestor...")
+            async with grpc.aio.insecure_channel("localhost:6000") as channel:
+                stub = live_pb2_grpc.LiveFeedServiceStub(channel)
+                logger.info("Connected to market_ingestor gRPC service")
+
+                async for msg in stub.StreamSnapshots(
+                    live_pb2.SubscribeRequest(source="BINANCE")
+                ):
+                    if MODE != "LIVE":
+                        logger.debug(f"Skipping message, MODE={MODE}")
+                        continue
+
+                    logger.info(f"Received live snapshot: symbol={msg.symbol}, mid_price={msg.mid_price}")
+
+                    snapshot = {
+                        # analytics timestamp remains internal / synthetic
+                        "timestamp": datetime.utcnow().isoformat(),
+
+                        # LIVE-specific timestamps
+                        "exchange_ts": msg.exchange_ts,
+                        "ingest_ts": msg.ingest_ts,
+
+                        "bids": [[l.price, l.volume] for l in msg.bids],
+                        "asks": [[l.price, l.volume] for l in msg.asks],
+                        "mid_price": msg.mid_price,
+                        "symbol": msg.symbol,
+                        "source": msg.source
+                    }
+
+                    try:
+                        raw_snapshot_queue.put_nowait(snapshot)
+                        logger.debug("Successfully queued live snapshot")
+                    except queue.Full:
+                        metrics.record_error("live_queue_full")
+                        logger.warning("Live snapshot queue is full")
+                        
+        except Exception as e:
+            logger.error(f"Live gRPC loop error: {e}")
+            logger.info("Retrying connection to market_ingestor in 5 seconds...")
+            await asyncio.sleep(5)  # Wait before retrying
 
 
 # --------------------------------------------------
@@ -490,6 +610,27 @@ async def csv_replay_loop():
         logger.error(f"CSV Replay Error: {e}")
         MODE = "SIMULATION"
         threading.Thread(target=simulation_loop, daemon=True).start()
+
+
+# to ingest live data
+async def live_snapshot_ingest(snapshot: dict):
+    """
+    Unified LIVE entrypoint.
+    This mirrors replay → analytics path exactly.
+    """
+    if MODE != "LIVE":
+        return
+
+    # Optional symbol filter
+    if ACTIVE_SYMBOL and snapshot.get("symbol") != ACTIVE_SYMBOL:
+        return
+
+    try:
+        raw_snapshot_queue.put_nowait(snapshot)
+    except queue.Full:
+        metrics.record_error("live_queue_full")
+        logger.warning("LIVE queue full, dropping snapshot")
+
 
 # --------------------------------------------------
 # Database Replay Loop (CORE LOGIC)
@@ -620,6 +761,8 @@ async def replay_loop():
                 # Ignore errors during cleanup
                 logger.debug(f"Connection cleanup during shutdown: {e}")
 
+
+
 # --------------------------------------------------
 # Startup Hook
 # --------------------------------------------------
@@ -636,6 +779,8 @@ async def startup():
     # Start loops
     asyncio.create_task(replay_loop())
     asyncio.create_task(processed_broadcast_loop())
+
+    asyncio.create_task(live_grpc_loop())
 
     logger.info("Backend started")
 
@@ -726,6 +871,47 @@ def set_speed(value: int):
 def get_replay_state():
     """Get current replay state."""
     return controller.get_state()
+
+@app.post("/mode")
+async def set_mode(payload: dict):
+    global MODE, ACTIVE_SYMBOL, ACTIVE_SOURCE
+
+    mode = payload.get("mode")
+    symbol = payload.get("symbol")
+    source = payload.get("source", "BINANCE")
+
+    if mode not in ["REPLAY", "LIVE", "SIMULATION"]:
+        return {"status": "error", "message": "Invalid mode"}
+
+    MODE = mode
+
+    if mode == "LIVE":
+        ACTIVE_SYMBOL = symbol or "BTCUSDT"
+        ACTIVE_SOURCE = source
+        
+        # Notify market_ingestor about symbol change
+        try:
+            async with grpc.aio.insecure_channel("localhost:6000") as channel:
+                stub = live_pb2_grpc.LiveFeedServiceStub(channel)
+                response = await stub.ChangeSymbol(
+                    live_pb2.ChangeSymbolRequest(symbol=ACTIVE_SYMBOL)
+                )
+                if not response.success:
+                    logger.warning(f"Failed to change symbol in market_ingestor: {response.message}")
+        except Exception as e:
+            logger.error(f"Error communicating with market_ingestor: {e}")
+    else:
+        ACTIVE_SYMBOL = None
+        ACTIVE_SOURCE = None
+
+    logger.info(f"Switched MODE={MODE}, SYMBOL={ACTIVE_SYMBOL}")
+    return {
+        "status": "success",
+        "mode": MODE,
+        "symbol": ACTIVE_SYMBOL,
+        "source": ACTIVE_SOURCE
+    }
+
 
 @app.post("/replay/goback/{seconds}")
 def go_back(seconds: float):
