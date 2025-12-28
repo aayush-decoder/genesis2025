@@ -1,23 +1,26 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   BarChart3, 
-  TrendingUp, 
-  FileText, 
-  Settings, 
   TrendingDown, 
   X, 
-  User 
+  User,
+  Home
 } from 'lucide-react';
 
-export default function Sidebar({ isOpen, onClose }) {
+export default function Sidebar({ isOpen, onClose, activePage = 'home' }) {
+  const navigate = useNavigate();
   const menuItems = [
-    { id: 'dashboard', icon: BarChart3, label: 'Dashboard', active: true },
-    { id: 'analytics', icon: TrendingUp, label: 'Analytics', active: false },
-    { id: 'reports', icon: FileText, label: 'Reports', active: false },
-    { id: 'settings', icon: Settings, label: 'Settings', active: false },
+    { id: 'home', icon: Home, label: 'Home', path: '/', active: true },
+    { id: 'dashboard', icon: BarChart3, label: 'Dashboard', path: '/dashboard', active: false },
   ];
 
-  const [activeItem, setActiveItem] = useState('dashboard');
+  const [activeItem, setActiveItem] = useState(activePage);
+
+  const handleItemClick = (item) => {
+    setActiveItem(item.id);
+    navigate(item.path);
+  };
 
   return (
     <>
@@ -158,7 +161,7 @@ export default function Sidebar({ isOpen, onClose }) {
             {menuItems.map((item) => (
               <button
                 key={item.id}
-                onClick={() => setActiveItem(item.id)}
+                onClick={() => handleItemClick(item)}
                 style={{
                   width: '100%',
                   padding: '12px 16px',

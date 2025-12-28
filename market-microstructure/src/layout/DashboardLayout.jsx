@@ -244,7 +244,7 @@ export default function DashboardLayout({
         <Menu size={18} />
       </button>
 
-      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} activePage="dashboard" />
 
       <div
         style={{
