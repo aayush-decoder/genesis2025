@@ -11,6 +11,8 @@ import os
 import pandas as pd
 import numpy as np
 from dotenv import load_dotenv
+from routers import auth
+from utils.database import Base, engine as db_engine
 
 # Load environment variables from .env file
 load_dotenv()
@@ -152,6 +154,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(auth.router)
 
 # --------------------------------------------------
 # Core Components
@@ -768,6 +772,8 @@ async def replay_loop():
 # --------------------------------------------------
 @app.on_event("startup")
 async def startup():
+    Base.metadata.create_all(bind=db_engine)
+
     controller.state = "PLAYING"
     
     # Initialize C++ engine with fallback
