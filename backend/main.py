@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 from routers import auth
 from utils.database import Base, engine as db_engine
 from analytics_core import AnalyticsEngine, db_row_to_snapshot, MarketSimulator
-# from replay import ReplayController
+from analytics_core import AnalyticsEngine, db_row_to_snapshot, MarketSimulator
 from db import get_connection, return_connection, close_all_connections, get_pool_stats
 
 from datetime import datetime
@@ -163,8 +163,7 @@ app.include_router(auth.router)
 # --------------------------------------------------
 engine = AnalyticsEngine()
 cpp_client = None  # Lazy initialization
-# controller = ReplayController()
-simulator = MarketSimulator() # Fallback Simulator
+cpp_client = None  # Lazy initialization
 session_manager = SessionManager()
 
 # Engine state lock to prevent race conditions
@@ -207,6 +206,62 @@ def initialize_cpp_engine():
             engine_mode = "python"
             cpp_client = None
             return False
+
+def process_snapshot_wrapper(snapshot, current_failures, max_failures=5):
+    """
+    Unified logic for processing snapshots with C++ engine and Python fallback.
+    Returns: (processed_snapshot, processing_time_ms, used_engine_str, new_failure_count)
+    """
+    global engine_mode, cpp_client
+
+    processing_start = time.time()
+    used_engine = "python"
+    
+    # Try C++ engine first if compatible
+    if engine_mode == "cpp" and cpp_client is not None:
+        try:
+            result = cpp_client.process_snapshot(snapshot)
+            processed = result
+            processing_time = result.get("latency_ms", 0)
+            used_engine = "cpp"
+            
+            # Reset failure counter on success
+            new_failures = 0
+            
+            # Add Python-only advanced anomaly detection
+            advanced_anomalies = engine.detect_advanced_anomalies(snapshot)
+            if advanced_anomalies:
+                processed.setdefault('anomalies', []).extend(advanced_anomalies)
+                used_engine = "cpp+python_advanced"
+
+            return processed, processing_time, used_engine, new_failures
+
+        except Exception as e:
+            # Handle C++ Failure
+            new_failures = current_failures + 1
+            is_rpc_error = isinstance(e, grpc.RpcError)
+            error_code = e.code() if is_rpc_error else "UNKNOWN"
+            
+            logger.warning(f"C++ engine error ({new_failures}/{max_failures}): {e.__class__.__name__} {error_code}")
+
+            if new_failures >= max_failures:
+                logger.error(f"C++ engine failed {max_failures} times, switching to Python permanently")
+                with engine_state_lock:
+                    engine_mode = "python"
+                    cpp_client = None
+            
+            used_engine = "python_fallback"
+            # Fall through to Python execution
+    else:
+        new_failures = current_failures
+        used_engine = "python"
+
+    # Python Execution (Default or Fallback)
+    processed = engine.process_snapshot(snapshot)
+    processing_time = (time.time() - processing_start) * 1000
+    
+    return processed, processing_time, used_engine, new_failures
+
 
 MAX_BUFFER = 100
 data_buffer: List[dict] = []
@@ -351,31 +406,10 @@ def session_analytics_worker(session: UserSession):
             if snapshot is None:
                 continue
 
-            processing_start = time.time()
-            used_engine = "python"
-
-            # Try C++ engine first if available
-            if engine_mode == "cpp" and cpp_client is not None:
-                try:
-                    result = cpp_client.process_snapshot(snapshot)
-                    processed = result
-                    processing_time = result.get("latency_ms", 0)
-                    used_engine = "cpp"
-                    consecutive_cpp_failures = 0
-                    
-                    advanced_anomalies = engine.detect_advanced_anomalies(snapshot)
-                    if advanced_anomalies:
-                        processed['anomalies'] = processed.get('anomalies', []) + advanced_anomalies
-                        used_engine = "cpp+python_advanced"
-                    
-                except Exception as e:
-                    processed = engine.process_snapshot(snapshot)
-                    processing_time = (time.time() - processing_start) * 1000
-                    used_engine = "python_fallback"
-            else:
-                processed = engine.process_snapshot(snapshot)
-                processing_time = (time.time() - processing_start) * 1000
-                used_engine = "python"
+            # Process using unified logic
+            processed, processing_time, used_engine, consecutive_cpp_failures = process_snapshot_wrapper(
+                snapshot, consecutive_cpp_failures, MAX_CPP_FAILURES
+            )
 
             processed = sanitize(processed)
             processed["engine"] = used_engine
@@ -503,33 +537,6 @@ async def session_broadcast_loop(session: UserSession):
 # --------------------------------------------------
 # Simulation Loop (FALLBACK)
 # --------------------------------------------------
-# def simulation_loop():
-#     """Runs in a separate thread when DB is unavailable."""
-#     logger.info("Simulation Loop started (Fallback Mode)")
-#     while True:
-#         try:
-#             if controller.state == "PLAYING":
-#                 start_time = time.time()
-#                 raw_snapshot = simulator.generate_snapshot()
-                
-#                 processing_start = time.time()
-#                 processed_snapshot = engine.process_snapshot(raw_snapshot)
-#                 processing_time = (time.time() - processing_start) * 1000
-                
-#                 # Feature I: Feedback Loop
-#                 if 'ofi' in processed_snapshot:
-#                     simulator.update_ofi(processed_snapshot['ofi'])
-                
-#                 simulation_queue.put(processed_snapshot)
-                
-#                 total_latency = (time.time() - start_time) * 1000
-#                 metrics.record_snapshot(total_latency, processing_time)
-            
-#             time.sleep(0.1 / controller.speed)
-#         except Exception as e:
-#             metrics.record_error("simulation_loop_error")
-#             logger.error(f"Simulation error: {e}")
-#             time.sleep(1)
 
 async def broadcast_loop():
     """Reads from the queue and broadcasts to WebSockets."""
@@ -589,64 +596,10 @@ def analytics_worker():
             if not adaptive_processor.should_process(snapshot):
                 continue  # Skip processing to catch up
 
-            processing_start = time.time()
-            used_engine = "python"  # Default
-
-            # Try C++ engine first if available
-            if engine_mode == "cpp" and cpp_client is not None:
-                try:
-                    result = cpp_client.process_snapshot(snapshot)
-                    processed = result  # C++ client returns full result
-                    processing_time = result.get("latency_ms", 0)
-                    used_engine = "cpp"
-                    consecutive_cpp_failures = 0  # Reset failure counter
-                    
-                    # Add Python-only advanced anomaly detection on top of C++ results
-                    advanced_anomalies = engine.detect_advanced_anomalies(snapshot)
-                    if advanced_anomalies:
-                        processed['anomalies'] = processed.get('anomalies', []) + advanced_anomalies
-                        used_engine = "cpp+python_advanced"
-                    
-                except grpc.RpcError as e:
-                    consecutive_cpp_failures += 1
-                    logger.warning(f"C++ engine RPC error ({consecutive_cpp_failures}/{MAX_CPP_FAILURES}): {e.code()}")
-                    
-                    if consecutive_cpp_failures >= MAX_CPP_FAILURES:
-                        logger.error(f"C++ engine failed {MAX_CPP_FAILURES} times, switching to Python permanently")
-                        with engine_state_lock:
-                            engine_mode = "python"
-                            cpp_client = None
-                    
-                    # Fallback to Python for this snapshot
-                    processed = engine.process_snapshot(snapshot)
-                    processing_time = (time.time() - processing_start) * 1000
-                    used_engine = "python_fallback"
-                    
-                except (ConnectionError, TimeoutError) as e:
-                    consecutive_cpp_failures += 1
-                    logger.error(f"C++ engine connection error ({consecutive_cpp_failures}/{MAX_CPP_FAILURES}): {e}")
-                    
-                    if consecutive_cpp_failures >= MAX_CPP_FAILURES:
-                        logger.error(f"C++ engine failed {MAX_CPP_FAILURES} times, switching to Python permanently")
-                        with engine_state_lock:
-                            engine_mode = "python"
-                            cpp_client = None
-                    
-                    # Fallback to Python for this snapshot
-                    processed = engine.process_snapshot(snapshot)
-                    processing_time = (time.time() - processing_start) * 1000
-                    used_engine = "python_fallback"
-                    
-                except Exception as e:
-                    logger.error(f"C++ engine unexpected error: {e}", exc_info=True)
-                    processed = engine.process_snapshot(snapshot)
-                    processing_time = (time.time() - processing_start) * 1000
-                    used_engine = "python_fallback"
-            else:
-                # Use Python engine
-                processed = engine.process_snapshot(snapshot)
-                processing_time = (time.time() - processing_start) * 1000
-                used_engine = "python"
+            # Process using unified logic
+            processed, processing_time, used_engine, consecutive_cpp_failures = process_snapshot_wrapper(
+                snapshot, consecutive_cpp_failures, MAX_CPP_FAILURES
+            )
 
             # Record processing time for adaptive mode
             adaptive_processor.record_processing_time(processing_time)
@@ -720,89 +673,6 @@ async def live_grpc_loop():
 # --------------------------------------------------
 # CSV Replay Loop (FALLBACK 2)
 # --------------------------------------------------
-# async def csv_replay_loop():
-#     """Runs when DB is unavailable but CSV is present."""
-#     global MODE
-#     logger.info("Starting CSV Replay Loop")
-    
-#     # Path to the CSV file
-#     csv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "l2_clean.csv")
-    
-#     if not os.path.exists(csv_path):
-#         logger.error(f"CSV file not found at {csv_path}. Switching to SIMULATION.")
-#         MODE = "SIMULATION"
-#         threading.Thread(target=simulation_loop, daemon=True).start()
-#         return
-
-#     # Read CSV in chunks
-#     chunk_size = 1000
-#     # Skip header, assume structure: P,V, P,V... for Bids then Asks, then TS
-    
-#     try:
-#         for chunk in pd.read_csv(csv_path, chunksize=chunk_size, header=0):
-#             # Convert to numpy for faster iteration
-#             data_values = chunk.values
-            
-#             for row in data_values:
-#                 if controller.state != "PLAYING":
-#                     while controller.state != "PLAYING":
-#                         await asyncio.sleep(0.1)
-                
-#                 # Parse Row (Interleaved Px, Vol)
-#                 # Cols 0-19: Bids (Px, Vol)
-#                 # Cols 20-39: Asks (Px, Vol)
-#                 # Col 40: Timestamp
-                
-#                 bids = []
-#                 asks = []
-                
-#                 try:
-#                     start_time = time.time()
-                    
-#                     for i in range(0, 20, 2):
-#                         bids.append([float(row[i]), float(row[i+1])])
-                    
-#                     for i in range(20, 40, 2):
-#                         asks.append([float(row[i]), float(row[i+1])])
-                        
-#                     ts = str(row[40])
-#                     mid_price = (bids[0][0] + asks[0][0]) / 2
-                    
-#                     snapshot = {
-#                         "timestamp": ts,
-#                         "bids": bids,
-#                         "asks": asks,
-#                         "mid_price": round(mid_price, 2)
-#                     }
-                    
-#                     processing_start = time.time()
-#                     processed = engine.process_snapshot(snapshot)
-#                     processing_time = (time.time() - processing_start) * 1000
-                    
-#                     processed = sanitize(processed)
-                    
-#                     data_buffer.append(processed)
-#                     if len(data_buffer) > MAX_BUFFER:
-#                         data_buffer.pop(0)
-                    
-#                     await manager.broadcast(processed)
-                    
-#                     total_latency = (time.time() - start_time) * 1000
-#                     metrics.record_snapshot(total_latency, processing_time)
-                    
-#                     await asyncio.sleep(0.1 / controller.speed)
-                    
-#                 except Exception as e:
-#                     metrics.record_error("csv_row_processing_error")
-#                     logger.error(f"Error processing CSV row: {e}")
-#                     continue
-                    
-#     except Exception as e:
-#         metrics.record_error("csv_replay_fatal_error")
-#         logger.error(f"CSV Replay Error: {e}")
-#         MODE = "SIMULATION"
-#         threading.Thread(target=simulation_loop, daemon=True).start()
-
 
 # to ingest live data
 async def live_snapshot_ingest(snapshot: dict):
@@ -827,133 +697,6 @@ async def live_snapshot_ingest(snapshot: dict):
 # --------------------------------------------------
 # Database Replay Loop (CORE LOGIC)
 # --------------------------------------------------
-# async def replay_loop():
-#     global MODE
-#     logger.info("Attempting to connect to TimescaleDB...")
-    
-#     conn = None
-#     try:
-#         conn = await get_connection()
-#         MODE = "REPLAY"
-#         logger.info("Connected to DB. Starting Replay Loop.")
-        
-#         QUERY_BATCH = """
-#             SELECT *
-#             FROM l2_orderbook
-#             WHERE ts > $1
-#             ORDER BY ts
-#             LIMIT $2
-#         """
-        
-#     except Exception as e:
-#         logger.warning(f"DB Connection failed: {e}")
-        
-#         # Release connection if acquired
-#         if conn:
-#             await return_connection(conn)
-#             conn = None
-        
-#         logger.info("Checking for CSV dataset...")
-        
-#         csv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "l2_clean.csv")
-#         if os.path.exists(csv_path):
-#             logger.info("CSV found. Switching to CSV REPLAY MODE.")
-#             MODE = "CSV_REPLAY"
-#             asyncio.create_task(csv_replay_loop())
-#             return
-#         else:
-#             logger.warning("CSV not found. Switching to SIMULATION MODE (Fallback)")
-#             MODE = "SIMULATION"
-#             sim_thread = threading.Thread(target=simulation_loop, daemon=True)
-#             sim_thread.start()
-#             asyncio.create_task(broadcast_loop())
-#             return
-
-#     consecutive_errors = 0
-#     max_consecutive_errors = 5
-    
-#     try:
-#         while True:
-#             try:
-#                 if controller.state != "PLAYING":
-#                     await asyncio.sleep(0.1)
-#                     continue
-
-#                 # Refill buffer if empty
-#                 if not replay_buffer:
-#                     last_ts = controller.cursor_ts or datetime.min
-                    
-#                     try:
-#                         rows = await conn.fetch(QUERY_BATCH, last_ts, REPLAY_BATCH_SIZE)
-#                     except Exception as db_err:
-#                         logger.error(f"Database query error: {db_err}")
-#                         metrics.record_error("db_query_error")
-#                         consecutive_errors += 1
-                        
-#                         if consecutive_errors >= max_consecutive_errors:
-#                             logger.error(f"Circuit breaker: {consecutive_errors} consecutive DB errors")
-#                             MODE = "SIMULATION"
-#                             if conn:
-#                                 await return_connection(conn)
-#                                 conn = None
-#                             threading.Thread(target=simulation_loop, daemon=True).start()
-#                             asyncio.create_task(broadcast_loop())
-#                             break
-                        
-#                         await asyncio.sleep(1.0)  # Back off before retry
-#                         continue
-
-#                     if not rows:
-#                         logger.info("Replay finished")
-#                         controller.stop()
-#                         continue
-                    
-#                     consecutive_errors = 0  # Reset on success
-
-#                     for r in rows:
-#                         # Convert asyncpg.Record to dict
-#                         replay_buffer.append(dict(r))
-
-#                 # Pop next row from buffer
-#                 row = replay_buffer.popleft()
-#                 controller.cursor_ts = row["ts"]
-
-#                 start_time = time.time()
-                
-#                 snapshot = db_row_to_snapshot(row)
-
-#                 # Send to analytics worker (non-blocking)
-#                 try:
-#                     raw_snapshot_queue.put_nowait(snapshot)
-#                 except queue.Full:
-#                     metrics.record_error("analytics_queue_full")
-#                     logger.warning("Analytics queue full, dropping snapshot")
-
-#                 # Replay speed (250 ms base)
-#                 await asyncio.sleep(0.25 / controller.speed)
-            
-#             except Exception as loop_err:
-#                 logger.error(f"Error in replay loop iteration: {loop_err}")
-#                 metrics.record_error("replay_loop_iteration_error")
-#                 consecutive_errors += 1
-                
-#                 if consecutive_errors >= max_consecutive_errors:
-#                     logger.error("Too many errors, breaking replay loop")
-#                     break
-                
-#                 await asyncio.sleep(0.5)
-    
-#     except asyncio.CancelledError:
-#         logger.info("Replay loop cancelled during shutdown")
-#     finally:
-#         if conn:
-#             try:
-#                 await return_connection(conn)
-#             except Exception as e:
-#                 # Ignore errors during cleanup
-#                 logger.debug(f"Connection cleanup during shutdown: {e}")
-
-
 
 # --------------------------------------------------
 # Startup Hook
@@ -1394,9 +1137,7 @@ def health_check():
         "snapshots_processed": stats["total_snapshots_processed"]
     }
 
-@app.get("/metrics")
-def get_metrics():
-    return metrics.get_stats()
+
 
 @app.get("/metrics/dashboard")
 def metrics_dashboard():

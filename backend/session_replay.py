@@ -14,7 +14,7 @@ class UserSession:
     def __init__(self, session_id: str, user_id: Optional[int] = None):
         self.session_id = session_id
         self.user_id = user_id
-        self.state = "STOPPED"  # STOPPED, PLAYING, PAUSED
+        self.state = "PLAYING"  # STOPPED, PLAYING, PAUSED
         self.speed = 1
         self.cursor_ts = None
         self.data_buffer = deque(maxlen=100)

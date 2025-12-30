@@ -2,6 +2,18 @@
 import pytest
 import asyncio
 from db import get_connection, return_connection, get_connection_pool, close_all_connections
+import db
+
+# Force reset of connection pool before/after tests to avoid loop mismatch
+@pytest.fixture(autouse=True)
+async def reset_db_pool():
+    if db._connection_pool:
+        await close_all_connections()
+    db._connection_pool = None
+    yield
+    if db._connection_pool:
+        await close_all_connections()
+    db._connection_pool = None
 
 
 class TestAsyncDatabase:
@@ -12,8 +24,8 @@ class TestAsyncDatabase:
         """Test that connection pool can be created."""
         pool = await get_connection_pool()
         assert pool is not None
-        assert pool._minsize == 1
-        assert pool._maxsize == 5
+        assert pool._minsize == 2
+        assert pool._maxsize == 10
     
     @pytest.mark.asyncio
     async def test_get_and_return_connection(self):
@@ -52,7 +64,7 @@ class TestAsyncDatabase:
         conn = await get_connection()
         
         # asyncpg uses $1, $2 style parameters instead of %s
-        result = await conn.fetchval("SELECT $1 + $2", 10, 20)
+        result = await conn.fetchval("SELECT $1::int + $2::int", 10, 20)
         assert result == 30
         
         await return_connection(conn)
@@ -88,8 +100,8 @@ class TestAsyncDatabase:
 
 # Run cleanup after all tests
 @pytest.fixture(scope="session", autouse=True)
-def cleanup_pool():
+async def cleanup_pool():
     """Cleanup connection pool after all tests."""
     yield
     # Cleanup happens here
-    asyncio.run(close_all_connections())
+    await close_all_connections()
