@@ -13,12 +13,8 @@ import numpy as np
 from dotenv import load_dotenv
 from routers import auth
 from utils.database import Base, engine as db_engine
-
-# Load environment variables from .env file
-load_dotenv()
-
 from analytics_core import AnalyticsEngine, db_row_to_snapshot, MarketSimulator
-from replay import ReplayController
+# from replay import ReplayController
 from db import get_connection, return_connection, close_all_connections, get_pool_stats
 
 from datetime import datetime
@@ -34,7 +30,12 @@ import grpc
 
 from rpc_stubs import live_pb2, live_pb2_grpc
 
+from session_replay import SessionManager, UserSession
+from utils.security import decode_access_token
+from typing import Dict
 
+# Load environment variables from .env file
+load_dotenv()
 
 USE_CPP_ENGINE = os.getenv("USE_CPP_ENGINE", "true").lower() == "true"  # Auto-enable C++ engine
 CPP_ENGINE_HOST = os.getenv("CPP_ENGINE_HOST", "localhost")
@@ -162,8 +163,9 @@ app.include_router(auth.router)
 # --------------------------------------------------
 engine = AnalyticsEngine()
 cpp_client = None  # Lazy initialization
-controller = ReplayController()
+# controller = ReplayController()
 simulator = MarketSimulator() # Fallback Simulator
+session_manager = SessionManager()
 
 # Engine state lock to prevent race conditions
 engine_state_lock = threading.Lock()
@@ -288,60 +290,246 @@ adaptive_processor = AdaptiveProcessor()
 # --------------------------------------------------
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: List[WebSocket] = []
+        self.active_connections: Dict[str, WebSocket] = {}
+        self.websocket_to_session: Dict[WebSocket, str] = {}
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket, session_id: str):
         await websocket.accept()
-        self.active_connections.append(websocket)
-        logger.info("WebSocket connected")
+        self.active_connections[session_id] = websocket
+        self.websocket_to_session[websocket] = session_id
+        logger.info(f"WebSocket connected for session {session_id}")
 
     def disconnect(self, websocket: WebSocket):
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
-            logger.info("WebSocket disconnected")
+        session_id = self.websocket_to_session.get(websocket)
+        if session_id:
+            if session_id in self.active_connections:
+                del self.active_connections[session_id]
+            del self.websocket_to_session[websocket]
+            logger.info(f"WebSocket disconnected for session {session_id}")
+
+    async def send_to_session(self, session_id: str, message: dict):
+        """Send message to specific session."""
+        websocket = self.active_connections.get(session_id)
+        if websocket:
+            try:
+                await websocket.send_json(message)
+                metrics.record_websocket_send()
+                return True
+            except Exception as e:
+                metrics.record_error("websocket_send_failed")
+                logger.warning(f"Send failed to session {session_id}: {e}")
+                return False
+        return False
 
     async def broadcast(self, message: dict):
-        for ws in self.active_connections:
+        """Broadcast to all connected sessions."""
+        for session_id, ws in list(self.active_connections.items()):
             try:
                 await ws.send_json(message)
                 metrics.record_websocket_send()
             except Exception as e:
                 metrics.record_error("websocket_broadcast_failed")
-                logger.warning(f"Broadcast failed to client: {e}")
+                logger.warning(f"Broadcast failed to session {session_id}: {e}")
 
 
 manager = ConnectionManager()
 
 # --------------------------------------------------
+# Session-Specific Analytics Worker
+# --------------------------------------------------
+def session_analytics_worker(session: UserSession):
+    """Analytics worker for a specific session."""
+    global engine_mode, cpp_client
+    logger.info(f"Analytics worker started for session {session.session_id}")
+    
+    consecutive_cpp_failures = 0
+    MAX_CPP_FAILURES = 5
+
+    while session.is_active():
+        try:
+            snapshot = session.raw_snapshot_queue.get(timeout=1.0)
+            if snapshot is None:
+                continue
+
+            processing_start = time.time()
+            used_engine = "python"
+
+            # Try C++ engine first if available
+            if engine_mode == "cpp" and cpp_client is not None:
+                try:
+                    result = cpp_client.process_snapshot(snapshot)
+                    processed = result
+                    processing_time = result.get("latency_ms", 0)
+                    used_engine = "cpp"
+                    consecutive_cpp_failures = 0
+                    
+                    advanced_anomalies = engine.detect_advanced_anomalies(snapshot)
+                    if advanced_anomalies:
+                        processed['anomalies'] = processed.get('anomalies', []) + advanced_anomalies
+                        used_engine = "cpp+python_advanced"
+                    
+                except Exception as e:
+                    processed = engine.process_snapshot(snapshot)
+                    processing_time = (time.time() - processing_start) * 1000
+                    used_engine = "python_fallback"
+            else:
+                processed = engine.process_snapshot(snapshot)
+                processing_time = (time.time() - processing_start) * 1000
+                used_engine = "python"
+
+            processed = sanitize(processed)
+            processed["engine"] = used_engine
+            
+            # Also update global buffer for backward compatibility
+            data_buffer.append(processed)
+            
+            session.processed_snapshot_queue.put((processed, processing_time))
+            metrics.record_engine_latency(used_engine.replace("_fallback", ""), processing_time)
+
+        except queue.Empty:
+            continue
+        except Exception as e:
+            metrics.record_error("session_analytics_worker_error")
+            logger.error(f"Session {session.session_id} analytics error: {e}")
+
+
+# --------------------------------------------------
+# Session Replay Loop
+# --------------------------------------------------
+async def session_replay_loop(session: UserSession):
+    """Replay loop for individual session."""
+    logger.info(f"Starting replay loop for session {session.session_id}")
+    
+    conn = None
+    try:
+        conn = await get_connection()
+        
+        QUERY_BATCH = """
+            SELECT *
+            FROM l2_orderbook
+            WHERE ts > $1
+            ORDER BY ts
+            LIMIT $2
+        """
+        
+        consecutive_errors = 0
+        max_consecutive_errors = 5
+        
+        while session.is_active():
+            try:
+                if session.state != "PLAYING":
+                    await asyncio.sleep(0.1)
+                    continue
+                
+                # Refill buffer if empty
+                if not session.replay_buffer:
+                    last_ts = session.cursor_ts or datetime.min
+                    
+                    try:
+                        rows = await conn.fetch(QUERY_BATCH, last_ts, REPLAY_BATCH_SIZE)
+                    except Exception as db_err:
+                        logger.error(f"Session {session.session_id} DB error: {db_err}")
+                        consecutive_errors += 1
+                        
+                        if consecutive_errors >= max_consecutive_errors:
+                            logger.error(f"Session {session.session_id}: Too many DB errors")
+                            break
+                        
+                        await asyncio.sleep(1.0)
+                        continue
+                    
+                    if not rows:
+                        logger.info(f"Session {session.session_id}: Replay finished")
+                        session.stop()
+                        continue
+                    
+                    consecutive_errors = 0
+                    
+                    for r in rows:
+                        session.replay_buffer.append(dict(r))
+                
+                # Pop next row
+                row = session.replay_buffer.popleft()
+                session.cursor_ts = row["ts"]
+                
+                snapshot = db_row_to_snapshot(row)
+                
+                # Process snapshot
+                try:
+                    session.raw_snapshot_queue.put_nowait(snapshot)
+                except queue.Full:
+                    logger.warning(f"Session {session.session_id}: Queue full")
+                
+                # Replay speed
+                await asyncio.sleep(0.25 / session.speed)
+            
+            except Exception as e:
+                logger.error(f"Session {session.session_id} loop error: {e}")
+                consecutive_errors += 1
+                
+                if consecutive_errors >= max_consecutive_errors:
+                    break
+                
+                await asyncio.sleep(0.5)
+    
+    finally:
+        if conn:
+            await return_connection(conn)
+
+
+# --------------------------------------------------
+# Session Broadcast Loop
+# --------------------------------------------------
+async def session_broadcast_loop(session: UserSession):
+    """Broadcast processed snapshots to specific session."""
+    while session.is_active():
+        try:
+            while not session.processed_snapshot_queue.empty():
+                processed, processing_time = session.processed_snapshot_queue.get_nowait()
+                
+                session.data_buffer.append(processed)
+                
+                # Send to this session only
+                await manager.send_to_session(session.session_id, processed)
+                
+                metrics.record_snapshot(processing_time, processing_time)
+            
+            await asyncio.sleep(0.005)
+        except Exception as e:
+            logger.error(f"Session {session.session_id} broadcast error: {e}")
+            await asyncio.sleep(0.05)
+
+
+# --------------------------------------------------
 # Simulation Loop (FALLBACK)
 # --------------------------------------------------
-def simulation_loop():
-    """Runs in a separate thread when DB is unavailable."""
-    logger.info("Simulation Loop started (Fallback Mode)")
-    while True:
-        try:
-            if controller.state == "PLAYING":
-                start_time = time.time()
-                raw_snapshot = simulator.generate_snapshot()
+# def simulation_loop():
+#     """Runs in a separate thread when DB is unavailable."""
+#     logger.info("Simulation Loop started (Fallback Mode)")
+#     while True:
+#         try:
+#             if controller.state == "PLAYING":
+#                 start_time = time.time()
+#                 raw_snapshot = simulator.generate_snapshot()
                 
-                processing_start = time.time()
-                processed_snapshot = engine.process_snapshot(raw_snapshot)
-                processing_time = (time.time() - processing_start) * 1000
+#                 processing_start = time.time()
+#                 processed_snapshot = engine.process_snapshot(raw_snapshot)
+#                 processing_time = (time.time() - processing_start) * 1000
                 
-                # Feature I: Feedback Loop
-                if 'ofi' in processed_snapshot:
-                    simulator.update_ofi(processed_snapshot['ofi'])
+#                 # Feature I: Feedback Loop
+#                 if 'ofi' in processed_snapshot:
+#                     simulator.update_ofi(processed_snapshot['ofi'])
                 
-                simulation_queue.put(processed_snapshot)
+#                 simulation_queue.put(processed_snapshot)
                 
-                total_latency = (time.time() - start_time) * 1000
-                metrics.record_snapshot(total_latency, processing_time)
+#                 total_latency = (time.time() - start_time) * 1000
+#                 metrics.record_snapshot(total_latency, processing_time)
             
-            time.sleep(0.1 / controller.speed)
-        except Exception as e:
-            metrics.record_error("simulation_loop_error")
-            logger.error(f"Simulation error: {e}")
-            time.sleep(1)
+#             time.sleep(0.1 / controller.speed)
+#         except Exception as e:
+#             metrics.record_error("simulation_loop_error")
+#             logger.error(f"Simulation error: {e}")
+#             time.sleep(1)
 
 async def broadcast_loop():
     """Reads from the queue and broadcasts to WebSockets."""
@@ -532,88 +720,88 @@ async def live_grpc_loop():
 # --------------------------------------------------
 # CSV Replay Loop (FALLBACK 2)
 # --------------------------------------------------
-async def csv_replay_loop():
-    """Runs when DB is unavailable but CSV is present."""
-    global MODE
-    logger.info("Starting CSV Replay Loop")
+# async def csv_replay_loop():
+#     """Runs when DB is unavailable but CSV is present."""
+#     global MODE
+#     logger.info("Starting CSV Replay Loop")
     
-    # Path to the CSV file
-    csv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "l2_clean.csv")
+#     # Path to the CSV file
+#     csv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "l2_clean.csv")
     
-    if not os.path.exists(csv_path):
-        logger.error(f"CSV file not found at {csv_path}. Switching to SIMULATION.")
-        MODE = "SIMULATION"
-        threading.Thread(target=simulation_loop, daemon=True).start()
-        return
+#     if not os.path.exists(csv_path):
+#         logger.error(f"CSV file not found at {csv_path}. Switching to SIMULATION.")
+#         MODE = "SIMULATION"
+#         threading.Thread(target=simulation_loop, daemon=True).start()
+#         return
 
-    # Read CSV in chunks
-    chunk_size = 1000
-    # Skip header, assume structure: P,V, P,V... for Bids then Asks, then TS
+#     # Read CSV in chunks
+#     chunk_size = 1000
+#     # Skip header, assume structure: P,V, P,V... for Bids then Asks, then TS
     
-    try:
-        for chunk in pd.read_csv(csv_path, chunksize=chunk_size, header=0):
-            # Convert to numpy for faster iteration
-            data_values = chunk.values
+#     try:
+#         for chunk in pd.read_csv(csv_path, chunksize=chunk_size, header=0):
+#             # Convert to numpy for faster iteration
+#             data_values = chunk.values
             
-            for row in data_values:
-                if controller.state != "PLAYING":
-                    while controller.state != "PLAYING":
-                        await asyncio.sleep(0.1)
+#             for row in data_values:
+#                 if controller.state != "PLAYING":
+#                     while controller.state != "PLAYING":
+#                         await asyncio.sleep(0.1)
                 
-                # Parse Row (Interleaved Px, Vol)
-                # Cols 0-19: Bids (Px, Vol)
-                # Cols 20-39: Asks (Px, Vol)
-                # Col 40: Timestamp
+#                 # Parse Row (Interleaved Px, Vol)
+#                 # Cols 0-19: Bids (Px, Vol)
+#                 # Cols 20-39: Asks (Px, Vol)
+#                 # Col 40: Timestamp
                 
-                bids = []
-                asks = []
+#                 bids = []
+#                 asks = []
                 
-                try:
-                    start_time = time.time()
+#                 try:
+#                     start_time = time.time()
                     
-                    for i in range(0, 20, 2):
-                        bids.append([float(row[i]), float(row[i+1])])
+#                     for i in range(0, 20, 2):
+#                         bids.append([float(row[i]), float(row[i+1])])
                     
-                    for i in range(20, 40, 2):
-                        asks.append([float(row[i]), float(row[i+1])])
+#                     for i in range(20, 40, 2):
+#                         asks.append([float(row[i]), float(row[i+1])])
                         
-                    ts = str(row[40])
-                    mid_price = (bids[0][0] + asks[0][0]) / 2
+#                     ts = str(row[40])
+#                     mid_price = (bids[0][0] + asks[0][0]) / 2
                     
-                    snapshot = {
-                        "timestamp": ts,
-                        "bids": bids,
-                        "asks": asks,
-                        "mid_price": round(mid_price, 2)
-                    }
+#                     snapshot = {
+#                         "timestamp": ts,
+#                         "bids": bids,
+#                         "asks": asks,
+#                         "mid_price": round(mid_price, 2)
+#                     }
                     
-                    processing_start = time.time()
-                    processed = engine.process_snapshot(snapshot)
-                    processing_time = (time.time() - processing_start) * 1000
+#                     processing_start = time.time()
+#                     processed = engine.process_snapshot(snapshot)
+#                     processing_time = (time.time() - processing_start) * 1000
                     
-                    processed = sanitize(processed)
+#                     processed = sanitize(processed)
                     
-                    data_buffer.append(processed)
-                    if len(data_buffer) > MAX_BUFFER:
-                        data_buffer.pop(0)
+#                     data_buffer.append(processed)
+#                     if len(data_buffer) > MAX_BUFFER:
+#                         data_buffer.pop(0)
                     
-                    await manager.broadcast(processed)
+#                     await manager.broadcast(processed)
                     
-                    total_latency = (time.time() - start_time) * 1000
-                    metrics.record_snapshot(total_latency, processing_time)
+#                     total_latency = (time.time() - start_time) * 1000
+#                     metrics.record_snapshot(total_latency, processing_time)
                     
-                    await asyncio.sleep(0.1 / controller.speed)
+#                     await asyncio.sleep(0.1 / controller.speed)
                     
-                except Exception as e:
-                    metrics.record_error("csv_row_processing_error")
-                    logger.error(f"Error processing CSV row: {e}")
-                    continue
+#                 except Exception as e:
+#                     metrics.record_error("csv_row_processing_error")
+#                     logger.error(f"Error processing CSV row: {e}")
+#                     continue
                     
-    except Exception as e:
-        metrics.record_error("csv_replay_fatal_error")
-        logger.error(f"CSV Replay Error: {e}")
-        MODE = "SIMULATION"
-        threading.Thread(target=simulation_loop, daemon=True).start()
+#     except Exception as e:
+#         metrics.record_error("csv_replay_fatal_error")
+#         logger.error(f"CSV Replay Error: {e}")
+#         MODE = "SIMULATION"
+#         threading.Thread(target=simulation_loop, daemon=True).start()
 
 
 # to ingest live data
@@ -639,131 +827,131 @@ async def live_snapshot_ingest(snapshot: dict):
 # --------------------------------------------------
 # Database Replay Loop (CORE LOGIC)
 # --------------------------------------------------
-async def replay_loop():
-    global MODE
-    logger.info("Attempting to connect to TimescaleDB...")
+# async def replay_loop():
+#     global MODE
+#     logger.info("Attempting to connect to TimescaleDB...")
     
-    conn = None
-    try:
-        conn = await get_connection()
-        MODE = "REPLAY"
-        logger.info("Connected to DB. Starting Replay Loop.")
+#     conn = None
+#     try:
+#         conn = await get_connection()
+#         MODE = "REPLAY"
+#         logger.info("Connected to DB. Starting Replay Loop.")
         
-        QUERY_BATCH = """
-            SELECT *
-            FROM l2_orderbook
-            WHERE ts > $1
-            ORDER BY ts
-            LIMIT $2
-        """
+#         QUERY_BATCH = """
+#             SELECT *
+#             FROM l2_orderbook
+#             WHERE ts > $1
+#             ORDER BY ts
+#             LIMIT $2
+#         """
         
-    except Exception as e:
-        logger.warning(f"DB Connection failed: {e}")
+#     except Exception as e:
+#         logger.warning(f"DB Connection failed: {e}")
         
-        # Release connection if acquired
-        if conn:
-            await return_connection(conn)
-            conn = None
+#         # Release connection if acquired
+#         if conn:
+#             await return_connection(conn)
+#             conn = None
         
-        logger.info("Checking for CSV dataset...")
+#         logger.info("Checking for CSV dataset...")
         
-        csv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "l2_clean.csv")
-        if os.path.exists(csv_path):
-            logger.info("CSV found. Switching to CSV REPLAY MODE.")
-            MODE = "CSV_REPLAY"
-            asyncio.create_task(csv_replay_loop())
-            return
-        else:
-            logger.warning("CSV not found. Switching to SIMULATION MODE (Fallback)")
-            MODE = "SIMULATION"
-            sim_thread = threading.Thread(target=simulation_loop, daemon=True)
-            sim_thread.start()
-            asyncio.create_task(broadcast_loop())
-            return
+#         csv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "l2_clean.csv")
+#         if os.path.exists(csv_path):
+#             logger.info("CSV found. Switching to CSV REPLAY MODE.")
+#             MODE = "CSV_REPLAY"
+#             asyncio.create_task(csv_replay_loop())
+#             return
+#         else:
+#             logger.warning("CSV not found. Switching to SIMULATION MODE (Fallback)")
+#             MODE = "SIMULATION"
+#             sim_thread = threading.Thread(target=simulation_loop, daemon=True)
+#             sim_thread.start()
+#             asyncio.create_task(broadcast_loop())
+#             return
 
-    consecutive_errors = 0
-    max_consecutive_errors = 5
+#     consecutive_errors = 0
+#     max_consecutive_errors = 5
     
-    try:
-        while True:
-            try:
-                if controller.state != "PLAYING":
-                    await asyncio.sleep(0.1)
-                    continue
+#     try:
+#         while True:
+#             try:
+#                 if controller.state != "PLAYING":
+#                     await asyncio.sleep(0.1)
+#                     continue
 
-                # Refill buffer if empty
-                if not replay_buffer:
-                    last_ts = controller.cursor_ts or datetime.min
+#                 # Refill buffer if empty
+#                 if not replay_buffer:
+#                     last_ts = controller.cursor_ts or datetime.min
                     
-                    try:
-                        rows = await conn.fetch(QUERY_BATCH, last_ts, REPLAY_BATCH_SIZE)
-                    except Exception as db_err:
-                        logger.error(f"Database query error: {db_err}")
-                        metrics.record_error("db_query_error")
-                        consecutive_errors += 1
+#                     try:
+#                         rows = await conn.fetch(QUERY_BATCH, last_ts, REPLAY_BATCH_SIZE)
+#                     except Exception as db_err:
+#                         logger.error(f"Database query error: {db_err}")
+#                         metrics.record_error("db_query_error")
+#                         consecutive_errors += 1
                         
-                        if consecutive_errors >= max_consecutive_errors:
-                            logger.error(f"Circuit breaker: {consecutive_errors} consecutive DB errors")
-                            MODE = "SIMULATION"
-                            if conn:
-                                await return_connection(conn)
-                                conn = None
-                            threading.Thread(target=simulation_loop, daemon=True).start()
-                            asyncio.create_task(broadcast_loop())
-                            break
+#                         if consecutive_errors >= max_consecutive_errors:
+#                             logger.error(f"Circuit breaker: {consecutive_errors} consecutive DB errors")
+#                             MODE = "SIMULATION"
+#                             if conn:
+#                                 await return_connection(conn)
+#                                 conn = None
+#                             threading.Thread(target=simulation_loop, daemon=True).start()
+#                             asyncio.create_task(broadcast_loop())
+#                             break
                         
-                        await asyncio.sleep(1.0)  # Back off before retry
-                        continue
+#                         await asyncio.sleep(1.0)  # Back off before retry
+#                         continue
 
-                    if not rows:
-                        logger.info("Replay finished")
-                        controller.stop()
-                        continue
+#                     if not rows:
+#                         logger.info("Replay finished")
+#                         controller.stop()
+#                         continue
                     
-                    consecutive_errors = 0  # Reset on success
+#                     consecutive_errors = 0  # Reset on success
 
-                    for r in rows:
-                        # Convert asyncpg.Record to dict
-                        replay_buffer.append(dict(r))
+#                     for r in rows:
+#                         # Convert asyncpg.Record to dict
+#                         replay_buffer.append(dict(r))
 
-                # Pop next row from buffer
-                row = replay_buffer.popleft()
-                controller.cursor_ts = row["ts"]
+#                 # Pop next row from buffer
+#                 row = replay_buffer.popleft()
+#                 controller.cursor_ts = row["ts"]
 
-                start_time = time.time()
+#                 start_time = time.time()
                 
-                snapshot = db_row_to_snapshot(row)
+#                 snapshot = db_row_to_snapshot(row)
 
-                # Send to analytics worker (non-blocking)
-                try:
-                    raw_snapshot_queue.put_nowait(snapshot)
-                except queue.Full:
-                    metrics.record_error("analytics_queue_full")
-                    logger.warning("Analytics queue full, dropping snapshot")
+#                 # Send to analytics worker (non-blocking)
+#                 try:
+#                     raw_snapshot_queue.put_nowait(snapshot)
+#                 except queue.Full:
+#                     metrics.record_error("analytics_queue_full")
+#                     logger.warning("Analytics queue full, dropping snapshot")
 
-                # Replay speed (250 ms base)
-                await asyncio.sleep(0.25 / controller.speed)
+#                 # Replay speed (250 ms base)
+#                 await asyncio.sleep(0.25 / controller.speed)
             
-            except Exception as loop_err:
-                logger.error(f"Error in replay loop iteration: {loop_err}")
-                metrics.record_error("replay_loop_iteration_error")
-                consecutive_errors += 1
+#             except Exception as loop_err:
+#                 logger.error(f"Error in replay loop iteration: {loop_err}")
+#                 metrics.record_error("replay_loop_iteration_error")
+#                 consecutive_errors += 1
                 
-                if consecutive_errors >= max_consecutive_errors:
-                    logger.error("Too many errors, breaking replay loop")
-                    break
+#                 if consecutive_errors >= max_consecutive_errors:
+#                     logger.error("Too many errors, breaking replay loop")
+#                     break
                 
-                await asyncio.sleep(0.5)
+#                 await asyncio.sleep(0.5)
     
-    except asyncio.CancelledError:
-        logger.info("Replay loop cancelled during shutdown")
-    finally:
-        if conn:
-            try:
-                await return_connection(conn)
-            except Exception as e:
-                # Ignore errors during cleanup
-                logger.debug(f"Connection cleanup during shutdown: {e}")
+#     except asyncio.CancelledError:
+#         logger.info("Replay loop cancelled during shutdown")
+#     finally:
+#         if conn:
+#             try:
+#                 await return_connection(conn)
+#             except Exception as e:
+#                 # Ignore errors during cleanup
+#                 logger.debug(f"Connection cleanup during shutdown: {e}")
 
 
 
@@ -772,111 +960,151 @@ async def replay_loop():
 # --------------------------------------------------
 @app.on_event("startup")
 async def startup():
+    # Create database tables
     Base.metadata.create_all(bind=db_engine)
-
-    controller.state = "PLAYING"
     
-    # Initialize C++ engine with fallback
+    # Initialize C++ engine
     initialize_cpp_engine()
-
-    # Start analytics worker
-    threading.Thread(target=analytics_worker, daemon=True).start()
-
-    # Start loops
-    asyncio.create_task(replay_loop())
-    asyncio.create_task(processed_broadcast_loop())
-
-    asyncio.create_task(live_grpc_loop())
-
-    logger.info("Backend started")
+    
+    # Session cleanup task
+    async def cleanup_sessions_periodically():
+        while True:
+            await asyncio.sleep(300)  # Every 5 minutes
+            await session_manager.cleanup_inactive_sessions()
+    
+    asyncio.create_task(cleanup_sessions_periodically())
+    
+    logger.info("Backend started with session management")
 
 
 @app.on_event("shutdown")
 async def shutdown():
     """Gracefully close database connections on shutdown."""
-    logger.info("Shutting down, closing database connections...")
+    logger.info("Shutting down...")
     try:
         await asyncio.wait_for(close_all_connections(), timeout=3.0)
-        logger.info("Database connections closed successfully")
+        logger.info("Database connections closed")
     except asyncio.TimeoutError:
-        logger.warning("Database connection close timed out after 3s")
+        logger.warning("Database close timed out")
     except Exception as e:
         logger.error(f"Error during shutdown: {e}")
 
 
 # --------------------------------------------------
-# WebSocket Endpoint
+# WebSocket Endpoint with Session Support
 # --------------------------------------------------
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
+@app.websocket("/ws/{session_id}")
+async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    """WebSocket endpoint with session support."""
+    # Get or create session
+    session = await session_manager.get_session(session_id)
+    if not session:
+        session = await session_manager.create_session(session_id)
+        
+        # Start session-specific tasks
+        threading.Thread(target=session_analytics_worker, args=(session,), daemon=True).start()
+        asyncio.create_task(session_replay_loop(session))
+        asyncio.create_task(session_broadcast_loop(session))
+    
+    await manager.connect(websocket, session_id)
+    
     try:
         # Send initial history
         await websocket.send_json({
             "type": "history",
-            "data": data_buffer
+            "data": list(session.data_buffer),
+            "session_id": session_id
         })
-
+        
         while True:
-            # Keep connection alive and listen for orders
             data = await websocket.receive_text()
-            
-            # Feature J: Handle incoming orders (Only in Simulation Mode)
-            if MODE == "SIMULATION":
-                try:
-                    message = json.loads(data)
-                    if message.get("type") == "ORDER":
-                        side = message.get("side")
-                        quantity = int(message.get("quantity", 100))
-                        simulator.place_order(side, quantity)
-                        logger.info(f"Order placed: {side} {quantity}")
-                except Exception as e:
-                    metrics.record_error("order_processing_error")
-                    logger.error(f"Error processing order: {e}")
-
+            logger.debug(f"Received message from session {session_id}: {data}")
+    
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
 # --------------------------------------------------
-# Replay Control Endpoints (BUTTONS)
+# Session-Based Replay Control Endpoints
 # --------------------------------------------------
-@app.post("/replay/start")
-def start_replay():
-    controller.start()
-    replay_buffer.clear()  # Clear buffer for fresh start
-    logger.info("Replay started")
-    return {"status": "started", **controller.get_state()}
+@app.post("/replay/{session_id}/start")
+async def start_replay(session_id: str):
+    session = await session_manager.get_session(session_id)
+    if not session:
+        return {"status": "error", "message": "Session not found"}
+    
+    session.start()
+    session.replay_buffer.clear()
+    return {"status": "started", **session.get_state()}
 
-@app.post("/replay/pause")
-def pause_replay():
-    controller.pause()
-    logger.info("Replay paused")
-    return {"status": "paused", **controller.get_state()}
+@app.post("/replay/{session_id}/pause")
+async def pause_replay(session_id: str):
+    session = await session_manager.get_session(session_id)
+    if not session:
+        return {"status": "error", "message": "Session not found"}
+    
+    session.pause()
+    return {"status": "paused", **session.get_state()}
 
-@app.post("/replay/resume")
-def resume_replay():
-    controller.resume()
-    logger.info("Replay resumed")
-    return {"status": "resumed", **controller.get_state()}
+@app.post("/replay/{session_id}/resume")
+async def resume_replay(session_id: str):
+    session = await session_manager.get_session(session_id)
+    if not session:
+        return {"status": "error", "message": "Session not found"}
+    
+    session.resume()
+    return {"status": "resumed", **session.get_state()}
 
-@app.post("/replay/stop")
-def stop_replay():
-    controller.stop()
-    replay_buffer.clear()
-    data_buffer.clear()
-    logger.info("Replay stopped")
-    return {"status": "stopped", **controller.get_state()}
+@app.post("/replay/{session_id}/stop")
+async def stop_replay(session_id: str):
+    session = await session_manager.get_session(session_id)
+    if not session:
+        return {"status": "error", "message": "Session not found"}
+    
+    session.stop()
+    return {"status": "stopped", **session.get_state()}
 
-@app.post("/replay/speed/{value}")
-def set_speed(value: int):
-    controller.set_speed(value)
-    logger.info(f"Replay speed set to {controller.speed}x")
-    return {"status": "success", "speed": controller.speed, **controller.get_state()}
+@app.post("/replay/{session_id}/speed/{value}")
+async def set_speed(session_id: str, value: int):
+    session = await session_manager.get_session(session_id)
+    if not session:
+        return {"status": "error", "message": "Session not found"}
+    
+    session.set_speed(value)
+    return {"status": "success", "speed": session.speed, **session.get_state()}
 
-@app.get("/replay/state")
-def get_replay_state():
-    """Get current replay state."""
-    return controller.get_state()
+@app.get("/replay/{session_id}/state")
+async def get_replay_state(session_id: str):
+    session = await session_manager.get_session(session_id)
+    if not session:
+        return {"status": "error", "message": "Session not found"}
+    
+    return session.get_state()
+
+@app.post("/replay/{session_id}/goback/{seconds}")
+async def go_back(session_id: str, seconds: float):
+    session = await session_manager.get_session(session_id)
+    if not session:
+        return {"status": "error", "message": "Session not found"}
+    
+    if session.go_back(seconds):
+        return {"status": "success", "message": f"Rewound by {seconds}s", **session.get_state()}
+    else:
+        return {"status": "error", "message": "Cannot rewind"}
+
+# --------------------------------------------------
+# Session Management Endpoints
+# --------------------------------------------------
+@app.get("/sessions")
+async def get_all_sessions():
+    """Get all active sessions."""
+    return session_manager.get_stats()
+
+@app.delete("/sessions/{session_id}")
+async def delete_session(session_id: str):
+    """Delete a specific session."""
+    await session_manager.delete_session(session_id)
+    return {"status": "success", "message": f"Session {session_id} deleted"}
+
 
 @app.post("/mode")
 async def set_mode(payload: dict):
@@ -917,25 +1145,6 @@ async def set_mode(payload: dict):
         "symbol": ACTIVE_SYMBOL,
         "source": ACTIVE_SOURCE
     }
-
-
-@app.post("/replay/goback/{seconds}")
-def go_back(seconds: float):
-    """Rewind replay by specified seconds."""
-    try:
-        if MODE not in ["REPLAY", "CSV_REPLAY"]:
-            return {"status": "error", "message": "Go back only available in replay mode"}
-        
-        if controller.go_back(seconds):
-            replay_buffer.clear()
-            data_buffer.clear()
-            logger.info(f"Rewound replay by {seconds} seconds to {controller.cursor_ts}")
-            return {"status": "success", "message": f"Rewound by {seconds}s", **controller.get_state()}
-        else:
-            return {"status": "error", "message": "Can only go back in DB replay mode"}
-    except Exception as e:
-        logger.error(f"Go back error: {e}")
-        return {"status": "error", "message": str(e)}
 
 # --------------------------------------------------
 # Data APIs (Dashboard)
@@ -1185,18 +1394,16 @@ def health_check():
         "snapshots_processed": stats["total_snapshots_processed"]
     }
 
+@app.get("/metrics")
+def get_metrics():
+    return metrics.get_stats()
+
 @app.get("/metrics/dashboard")
 def metrics_dashboard():
-    """Detailed metrics for monitoring dashboard."""
     stats = metrics.get_stats()
-    
-    # Add additional context
     stats["active_websocket_connections"] = len(manager.active_connections)
     stats["buffer_size"] = len(data_buffer)
-    stats["controller_state"] = controller.state
-    stats["replay_speed"] = controller.speed
     stats["db_pool"] = get_pool_stats()
-    
     return stats
 
 @app.get("/db/pool")

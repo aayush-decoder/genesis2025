@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Loader2, Radio, Play } from 'lucide-react';
 import DashboardLayout from "../layout/DashboardLayout";
 import Toast from "../components/Toast";
+import { useAuth } from "../contexts/AuthContext";
 // import DataExport from "../components/DataExport";
 import "../styles/dashboard.css";
 
@@ -17,6 +18,7 @@ const SYMBOLS = [
 ];
 
 export default function Dashboard() {
+  const { sessionId } = useAuth();
   const [data, setData] = useState([]);
   const [latestSnapshot, setLatestSnapshot] = useState(null);
   const [replayState, setReplayState] = useState("PLAYING"); // Track state locally
@@ -105,9 +107,14 @@ export default function Dashboard() {
   };
 
   // -------------------------------
-  // WebSocket: Market Data Stream with Auto-Reconnect
+  // WebSocket with Session Support
   // -------------------------------
   useEffect(() => {
+    if (!sessionId) {
+      console.error("No session ID available");
+      return;
+    }
+
     let reconnectAttempts = 0;
     const maxReconnectAttempts = 10;
     const reconnectDelay = 3000;
@@ -115,12 +122,14 @@ export default function Dashboard() {
     let intentionallyClosed = false;
 
     const connect = () => {
-      const ws = new WebSocket(BACKEND_WS);
+      // Connect to session-specific WebSocket
+      const wsUrl = `${BACKEND_HTTP.replace(/^http/, "ws")}/ws/${sessionId}`;
+      const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
-        console.log(`✅ Connected to Market ${currentMode} Feed`);
-        reconnectAttempts = 0; // Reset on successful connection
+        console.log(`✅ Connected to session ${sessionId}`);
+        reconnectAttempts = 0;
       };
 
       ws.onmessage = (event) => {
@@ -151,24 +160,20 @@ export default function Dashboard() {
       };
 
       ws.onclose = (event) => {
-        console.log(`❌ Disconnected from Market ${currentMode} Feed`, event.code, event.reason);
+        console.log("❌ Disconnected from session", event.code, event.reason);
         
-        // Auto-reconnect if not intentionally closed
         if (!intentionallyClosed && reconnectAttempts < maxReconnectAttempts) {
           reconnectAttempts++;
           console.log(`🔄 Reconnecting (attempt ${reconnectAttempts}/${maxReconnectAttempts})...`);
           reconnectTimeout = setTimeout(connect, reconnectDelay);
         } else if (reconnectAttempts >= maxReconnectAttempts) {
-          console.error("❌ Max reconnection attempts reached. Please refresh the page.");
+          console.error("❌ Max reconnection attempts reached");
+          showToast("Connection lost. Please refresh.", "error");
         }
       };
 
       ws.onerror = (err) => {
-        console.error("WebSocket error:", {
-          url: ws.url,
-          readyState: ws.readyState,
-          err,
-        });
+        console.error("WebSocket error:", err);
       };
     };
 
@@ -183,16 +188,25 @@ export default function Dashboard() {
         wsRef.current.close();
       }
     };
-  }, []);
+  }, [sessionId]);
 
-  // -------------------------------
-  // Replay Controls (REST → Backend)
+
+ // -------------------------------
+  // Replay Controls with Session ID
   // -------------------------------
   const controlReplay = async (path, newState) => {
+    if (!sessionId) {
+      showToast("Session not initialized", "error");
+      return false;
+    }
+
     setIsLoading(true);
     try {
-      const response = await fetch(`${BACKEND_HTTP}/replay/${path}`, {
+      const response = await fetch(`${BACKEND_HTTP}/replay/${sessionId}/${path}`, {
         method: "POST",
+        headers: {
+          "Authorization": `Bearer ${localStorage.getItem('auth_token')}`
+        }
       });
       
       if (!response.ok) {
@@ -228,15 +242,22 @@ export default function Dashboard() {
   };
 
   const handleGoBack = async (seconds) => {
+    if (!sessionId) {
+      showToast("Session not initialized", "error");
+      return false;
+    }
+
     setIsLoading(true);
     try {
-      const response = await fetch(`${BACKEND_HTTP}/replay/goback/${seconds}`, {
-        method: 'POST'
+      const response = await fetch(`${BACKEND_HTTP}/replay/${sessionId}/goback/${seconds}`, {
+        method: 'POST',
+        headers: {
+          "Authorization": `Bearer ${localStorage.getItem('auth_token')}`
+        }
       });
       const result = await response.json();
       
       if (result.status === 'success') {
-        // Clear frontend data buffer
         setData([]);
         setLatestSnapshot(null);
         return true;
@@ -252,6 +273,7 @@ export default function Dashboard() {
       setIsLoading(false);
     }
   };
+
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0f172a' }}>
