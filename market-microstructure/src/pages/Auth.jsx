@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import Toast from "../components/Toast";
 
 export default function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
@@ -24,6 +25,7 @@ export default function AuthPage() {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
   const { login, register } = useAuth();
+  const [toast, setToast] = useState(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -40,9 +42,16 @@ export default function AuthPage() {
       const result = await login(formData.email, formData.password);
 
       if (result.success) {
-        navigate("/dashboard");
+        setToast({
+          message: "Login successful! Redirecting...",
+          type: "success",
+        });
+        setTimeout(() => {
+          navigate("/dashboard");
+        }, 1000); // Small delay for user to see the toast
       } else {
         setError(result.error || "Login failed");
+        setToast({ message: result.error || "Login failed", type: "error" });
       }
     } else {
       if (
@@ -57,11 +66,16 @@ export default function AuthPage() {
       }
       if (formData.password !== formData.confirmPassword) {
         setError("Passwords do not match");
+        setToast({ message: "Passwords do not match", type: "error" });
         setIsLoading(false);
         return;
       }
       if (formData.password.length < 6) {
         setError("Password must be at least 6 characters");
+        setToast({
+          message: "Password must be at least 6 characters",
+          type: "error",
+        });
         setIsLoading(false);
         return;
       }
@@ -73,9 +87,19 @@ export default function AuthPage() {
       );
 
       if (result.success) {
-        navigate("/dashboard");
+        setToast({
+          message: "Account created successfully! Redirecting...",
+          type: "success",
+        });
+        setTimeout(() => {
+          navigate("/dashboard");
+        }, 1000); // Small delay for user to see the toast
       } else {
         setError(result.error || "Registration failed");
+        setToast({
+          message: result.error || "Registration failed",
+          type: "error",
+        });
       }
     }
 
@@ -713,6 +737,13 @@ export default function AuthPage() {
           </div>
         </div>
       </div>
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
     </div>
   );
 }
