@@ -4,7 +4,7 @@ import os
 
 # Use relative path or absolute path based on workspace
 CSV_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dataset", "l2_clean.csv")
-DB_URL = "postgresql://postgres:postgres@127.0.0.1:5433/orderbook"
+DB_URL = "postgresql://postgres:postgres@127.0.0.1:5433/trading_hub"
 
 print(f"Reading CSV from {CSV_PATH}...")
 # Read without header first to verify structure, or assume header exists but is misleading

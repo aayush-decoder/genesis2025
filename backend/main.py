@@ -14,7 +14,6 @@ from dotenv import load_dotenv
 from routers import auth
 from utils.database import Base, engine as db_engine
 from analytics_core import AnalyticsEngine, db_row_to_snapshot, MarketSimulator
-from analytics_core import AnalyticsEngine, db_row_to_snapshot, MarketSimulator
 from db import get_connection, return_connection, close_all_connections, get_pool_stats
 
 from datetime import datetime
