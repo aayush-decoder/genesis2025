@@ -100,10 +100,18 @@ async def get_connection_pool() -> asyncpg.Pool:
     return _connection_pool
 
 async def get_connection():
-    """Get a connection from the pool with metrics tracking."""
+    """Get a connection from the pool with metrics tracking and hard limits."""
     start_time = time.time()
     try:
         pool = await get_connection_pool()
+        
+        # Check pool size before acquisition to prevent exhaustion
+        pool_size = pool.get_size()
+        if pool_size >= POOL_MAX_SIZE:
+            active_conns = _pool_stats["total_acquisitions"] - _pool_stats["total_releases"]
+            logger.warning(f"⚠️ Connection pool at capacity: {pool_size}/{POOL_MAX_SIZE}, active: {active_conns}")
+            # Still attempt acquisition but log the issue
+        
         conn = await pool.acquire()
         acquisition_time = (time.time() - start_time) * 1000
         

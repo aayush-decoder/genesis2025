@@ -395,16 +395,72 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 # --------------------------------------------------
-# Session-Specific Analytics Worker
+# Session-Specific Analytics Worker (Async)
 # --------------------------------------------------
-def session_analytics_worker(session: UserSession):
-    """Analytics worker for a specific session."""
+async def session_analytics_worker_async(session: UserSession):
+    """
+    Async analytics worker for a specific session.
+    Replaces threaded worker for better concurrency and resource efficiency.
+    """
     global engine_mode, cpp_client
-    logger.info(f"Analytics worker started for session {session.session_id}")
+    logger.info(f"Async analytics worker started for session {session.session_id}")
     
     consecutive_cpp_failures = 0
     MAX_CPP_FAILURES = 5
 
+    while session.is_active():
+        try:
+            # Non-blocking queue check with asyncio
+            if session.raw_snapshot_queue.empty():
+                await asyncio.sleep(0.01)  # Yield control, 10ms sleep
+                continue
+                
+            snapshot = session.raw_snapshot_queue.get_nowait()
+            if snapshot is None:
+                continue
+
+            # Process using unified logic
+            processed, processing_time, used_engine, consecutive_cpp_failures = process_snapshot_wrapper(
+                snapshot, consecutive_cpp_failures, MAX_CPP_FAILURES
+            )
+
+            processed = sanitize(processed)
+            processed["engine"] = used_engine
+            
+            # === MODEL PREDICTION ===
+            prediction = inference_engine.predict(session.session_id, snapshot)
+            if prediction:
+                processed['prediction'] = prediction
+                
+                # === STRATEGY ENGINE ===
+                # Get strategy for this session
+                strategy = strategy_manager.get_or_create(session.session_id)
+                strategy_update = strategy.process_signal(prediction, snapshot)
+                if strategy_update:
+                    processed['strategy'] = strategy_update
+            
+            # Also update global buffer for backward compatibility
+            data_buffer.append(processed)
+            
+            session.processed_snapshot_queue.put((processed, processing_time))
+            metrics.record_engine_latency(used_engine.replace("_fallback", ""), processing_time)
+
+        except queue.Empty:
+            await asyncio.sleep(0.01)
+        except Exception as e:
+            metrics.record_error("session_analytics_worker_error")
+            logger.error(f"Session {session.session_id} async analytics error: {e}")
+            await asyncio.sleep(0.1)  # Back off on error
+
+    logger.info(f"Async analytics worker stopped for session {session.session_id}")
+
+# Backward compatibility: Legacy threaded worker (deprecated)
+def session_analytics_worker(session: UserSession):
+    """DEPRECATED: Legacy threaded analytics worker. Use session_analytics_worker_async instead."""
+    logger.warning(f"Using deprecated threaded analytics worker for session {session.session_id}")
+    global engine_mode, cpp_client
+    
+    consecutive_cpp_failures = 0
     MAX_CPP_FAILURES = 5
 
     while session.is_active():
@@ -412,9 +468,6 @@ def session_analytics_worker(session: UserSession):
             snapshot = session.raw_snapshot_queue.get(timeout=1.0)
             if snapshot is None:
                 continue
-            
-            # print(f"DEBUG: Analytics Worker got snapshot: {snapshot.get('mid_price')}")
-
 
             # Process using unified logic
             processed, processing_time, used_engine, consecutive_cpp_failures = process_snapshot_wrapper(
@@ -913,8 +966,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     if not session:
         session = await session_manager.create_session(session_id)
         
-        # Start session-specific tasks
-        threading.Thread(target=session_analytics_worker, args=(session,), daemon=True).start()
+        # Start session-specific tasks with async worker
+        asyncio.create_task(session_analytics_worker_async(session))
         
         # Special case for ModelTest: Use CSV Replay
         if "model-test" in session_id:

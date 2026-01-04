@@ -132,6 +132,79 @@ class ModelInference:
             "up": float(probs[2])
         }
     
+    def predict_batch(self, session_snapshots: dict):
+        """
+        Batch inference for multiple sessions at once (GPU efficiency).
+        Args:
+            session_snapshots: {session_id: snapshot}
+        Returns:
+            {session_id: {up, neutral, down}} for ready sessions
+        """
+        if self.model is None:
+            return {}
+        
+        import time
+        current_time = time.time()
+        
+        # Filter sessions that are ready for inference
+        ready_sessions = {}
+        batch_inputs = []
+        session_ids_order = []
+        
+        for session_id, snapshot in session_snapshots.items():
+            # Rate limiting check
+            last_time = self.last_inference_time.get(session_id, 0)
+            if current_time - last_time < self.min_inference_interval:
+                continue
+            
+            # Initialize buffer if needed
+            if session_id not in self.session_buffers:
+                self.session_buffers[session_id] = deque(maxlen=100)
+            
+            # Extract and normalize features
+            features = self._extract_features(snapshot)
+            std_safe = self.std.copy()
+            std_safe[std_safe == 0] = 1.0
+            features_norm = (features - self.mean) / std_safe
+            
+            self.session_buffers[session_id].append(features_norm)
+            
+            # Check if buffer is full
+            if len(self.session_buffers[session_id]) == 100:
+                input_np = np.array(list(self.session_buffers[session_id]))
+                batch_inputs.append(input_np)
+                session_ids_order.append(session_id)
+        
+        # No sessions ready for inference
+        if not batch_inputs:
+            return {}
+        
+        # Batch inference (N, 1, 100, 40)
+        try:
+            batch_tensor = torch.FloatTensor(np.array(batch_inputs)).unsqueeze(1).to(self.device)
+            
+            with torch.no_grad():
+                outputs = self.model(batch_tensor)
+                probs_batch = torch.softmax(outputs, dim=1).cpu().numpy()
+            
+            # Update results and timestamps
+            for idx, session_id in enumerate(session_ids_order):
+                probs = probs_batch[idx]
+                ready_sessions[session_id] = {
+                    "down": float(probs[0]),
+                    "neutral": float(probs[1]),
+                    "up": float(probs[2])
+                }
+                self.last_inference_time[session_id] = current_time
+            
+            logger.info(f"Batch inference completed for {len(ready_sessions)} sessions")
+            
+        except Exception as e:
+            logger.error(f"Batch inference error: {e}")
+            return {}
+        
+        return ready_sessions
+    
     def cleanup_session(self, session_id: str):
         """Clean up session buffer when session ends."""
         if session_id in self.session_buffers:
