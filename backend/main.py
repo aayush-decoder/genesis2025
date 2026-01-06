@@ -32,6 +32,7 @@ from rpc_stubs import live_pb2, live_pb2_grpc
 from session_replay import SessionManager, UserSession
 from utils.security import decode_access_token
 from typing import Dict
+from snapshot_processor import SnapshotProcessor
 
 # Load environment variables from .env file
 load_dotenv()
@@ -210,6 +211,7 @@ def initialize_cpp_engine():
             # Only assign to global after successful test
             cpp_client = temp_client
             engine_mode = "cpp"
+            snapshot_processor.set_cpp_client(cpp_client)
             return True
             
         except grpc.RpcError as e:
@@ -223,60 +225,8 @@ def initialize_cpp_engine():
             cpp_client = None
             return False
 
-def process_snapshot_wrapper(snapshot, current_failures, max_failures=5):
-    """
-    Unified logic for processing snapshots with C++ engine and Python fallback.
-    Returns: (processed_snapshot, processing_time_ms, used_engine_str, new_failure_count)
-    """
-    global engine_mode, cpp_client
-
-    processing_start = time.time()
-    used_engine = "python"
-    
-    # Try C++ engine first if compatible
-    if engine_mode == "cpp" and cpp_client is not None:
-        try:
-            result = cpp_client.process_snapshot(snapshot)
-            processed = result
-            processing_time = result.get("latency_ms", 0)
-            used_engine = "cpp"
-            
-            # Reset failure counter on success
-            new_failures = 0
-            
-            # Add Python-only advanced anomaly detection
-            advanced_anomalies = engine.detect_advanced_anomalies(snapshot)
-            if advanced_anomalies:
-                processed.setdefault('anomalies', []).extend(advanced_anomalies)
-                used_engine = "cpp+python_advanced"
-
-            return processed, processing_time, used_engine, new_failures
-
-        except Exception as e:
-            # Handle C++ Failure
-            new_failures = current_failures + 1
-            is_rpc_error = isinstance(e, grpc.RpcError)
-            error_code = e.code() if is_rpc_error else "UNKNOWN"
-            
-            logger.warning(f"C++ engine error ({new_failures}/{max_failures}): {e.__class__.__name__} {error_code}")
-
-            if new_failures >= max_failures:
-                logger.error(f"C++ engine failed {max_failures} times, switching to Python permanently")
-                with engine_state_lock:
-                    engine_mode = "python"
-                    cpp_client = None
-            
-            used_engine = "python_fallback"
-            # Fall through to Python execution
-    else:
-        new_failures = current_failures
-        used_engine = "python"
-
-    # Python Execution (Default or Fallback)
-    processed = engine.process_snapshot(snapshot)
-    processing_time = (time.time() - processing_start) * 1000
-    
-    return processed, processing_time, used_engine, new_failures
+# Initialize snapshot processor service
+snapshot_processor = SnapshotProcessor(cpp_client=None, max_failures=5)
 
 
 data_buffer: List[dict] = []
@@ -434,12 +384,11 @@ async def session_analytics_worker_async(session: UserSession):
             if snapshot is None:
                 continue
 
-            # Process using unified logic
-            processed, processing_time, used_engine, consecutive_cpp_failures = process_snapshot_wrapper(
-                snapshot, consecutive_cpp_failures, MAX_CPP_FAILURES
+            # Process using snapshot processor service
+            processed, processing_time, used_engine, consecutive_cpp_failures = snapshot_processor.process(
+                snapshot, consecutive_cpp_failures
             )
 
-            processed = sanitize(processed)
             processed["engine"] = used_engine
             
             # === MODEL PREDICTION ===
@@ -470,53 +419,6 @@ async def session_analytics_worker_async(session: UserSession):
     logger.info(f"Async analytics worker stopped for session {session.session_id}")
 
 # Backward compatibility: Legacy threaded worker (deprecated)
-def session_analytics_worker(session: UserSession):
-    """DEPRECATED: Legacy threaded analytics worker. Use session_analytics_worker_async instead."""
-    logger.warning(f"Using deprecated threaded analytics worker for session {session.session_id}")
-    global engine_mode, cpp_client
-    
-    consecutive_cpp_failures = 0
-    MAX_CPP_FAILURES = 5
-
-    while session.is_active():
-        try:
-            snapshot = session.raw_snapshot_queue.get(timeout=1.0)
-            if snapshot is None:
-                continue
-
-            # Process using unified logic
-            processed, processing_time, used_engine, consecutive_cpp_failures = process_snapshot_wrapper(
-                snapshot, consecutive_cpp_failures, MAX_CPP_FAILURES
-            )
-
-            processed = sanitize(processed)
-            processed["engine"] = used_engine
-            
-            # === MODEL PREDICTION ===
-            prediction = inference_engine.predict(session.session_id, snapshot)
-            if prediction:
-                processed['prediction'] = prediction
-                
-                # === STRATEGY ENGINE ===
-                # Get strategy for this session
-                strategy = strategy_manager.get_or_create(session.session_id)
-                strategy_update = strategy.process_signal(prediction, snapshot)
-                if strategy_update:
-                    processed['strategy'] = strategy_update
-            
-            # Also update global buffer for backward compatibility
-            data_buffer.append(processed)
-            
-            session.processed_snapshot_queue.put((processed, processing_time))
-            metrics.record_engine_latency(used_engine.replace("_fallback", ""), processing_time)
-
-        except queue.Empty:
-            continue
-        except Exception as e:
-            metrics.record_error("session_analytics_worker_error")
-            logger.error(f"Session {session.session_id} analytics error: {e}")
-
-
 # --------------------------------------------------
 # Session Replay Loop
 # --------------------------------------------------
@@ -814,15 +716,14 @@ def analytics_worker():
             if not adaptive_processor.should_process(snapshot):
                 continue  # Skip processing to catch up
 
-            # Process using unified logic
-            processed, processing_time, used_engine, consecutive_cpp_failures = process_snapshot_wrapper(
-                snapshot, consecutive_cpp_failures, MAX_CPP_FAILURES
+            # Process using snapshot processor service
+            processed, processing_time, used_engine, consecutive_cpp_failures = snapshot_processor.process(
+                snapshot, consecutive_cpp_failures
             )
 
             # Record processing time for adaptive mode
             adaptive_processor.record_processing_time(processing_time)
 
-            processed = sanitize(processed)
             processed["engine"] = used_engine  # Track which engine processed this
             processed_snapshot_queue.put((processed, processing_time))
             metrics.record_engine_latency(used_engine.replace("_fallback", ""), processing_time)
