@@ -8,6 +8,7 @@ import asyncio
 import logging
 from typing import List
 import os
+from contextlib import asynccontextmanager
 import pandas as pd
 import numpy as np
 from dotenv import load_dotenv
@@ -140,9 +141,67 @@ class MetricsCollector:
 metrics = MetricsCollector()
 
 # --------------------------------------------------
+# Application Lifespan
+# --------------------------------------------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application startup and shutdown"""
+    # Startup
+    logger.info("Starting application...")
+    
+    # Create database tables only if engine is available
+    if db_engine:
+        Base.metadata.create_all(bind=db_engine)
+    
+    # Initialize C++ engine
+    initialize_cpp_engine()
+    
+    # Session cleanup task
+    async def cleanup_sessions_periodically():
+        while True:
+            await asyncio.sleep(300)  # Every 5 minutes
+            await session_manager.cleanup_inactive_sessions()
+    
+    cleanup_task = asyncio.create_task(cleanup_sessions_periodically())
+    
+    logger.info("Backend started with session management")
+    
+    yield  # Application runs here
+    
+    # Shutdown
+    logger.info("Shutting down...")
+    
+    # Cancel cleanup task
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        pass
+    
+    try:
+        # Close database connections
+        await asyncio.wait_for(close_all_connections(), timeout=3.0)
+        logger.info("Database connections closed")
+        
+        # Cleanup model resources
+        logger.info("Cleaning up model resources...")
+        if hasattr(inference_engine, 'model') and inference_engine.model is not None:
+            inference_engine.session_buffers.clear()
+            if hasattr(inference_engine.model, 'cpu'):
+                inference_engine.model.cpu()  # Move model off GPU
+            del inference_engine.model
+        
+        import gc
+        gc.collect()
+        logger.info("Resources cleaned up successfully")
+        
+    except Exception as e:
+        logger.error(f"Error during shutdown: {e}")
+
+# --------------------------------------------------
 # FastAPI App
 # --------------------------------------------------
-app = FastAPI()
+app = FastAPI(lifespan=lifespan)
 app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
 
@@ -873,47 +932,6 @@ async def live_snapshot_ingest(snapshot: dict):
 # --------------------------------------------------
 # Startup Hook
 # --------------------------------------------------
-@app.on_event("startup")
-async def startup():
-    # Create database tables only if engine is available
-    if db_engine:
-        Base.metadata.create_all(bind=db_engine)
-    
-    # Initialize C++ engine
-    initialize_cpp_engine()
-    
-    # Session cleanup task
-    async def cleanup_sessions_periodically():
-        while True:
-            await asyncio.sleep(300)  # Every 5 minutes
-            await session_manager.cleanup_inactive_sessions()
-    
-    asyncio.create_task(cleanup_sessions_periodically())
-    
-    logger.info("Backend started with session management")
-
-
-@app.on_event("shutdown")
-async def shutdown():
-    """Gracefully close database connections and cleanup resources on shutdown."""
-    logger.info("Shutting down...")
-    try:
-        # Close database connections
-        await asyncio.wait_for(close_all_connections(), timeout=3.0)
-        logger.info("Database connections closed")
-        
-        # Cleanup model resources
-        logger.info("Cleaning up model resources...")
-        if hasattr(inference_engine, 'model') and inference_engine.model is not None:
-            inference_engine.session_buffers.clear()
-            if hasattr(inference_engine.model, 'cpu'):
-                inference_engine.model.cpu()  # Move model off GPU
-        
-        # Cleanup strategy resources
-        strategy_manager.strategies.clear()
-        logger.info("Resources cleaned up successfully")
-        
-    except asyncio.TimeoutError:
         logger.warning("Database close timed out")
     except Exception as e:
         logger.error(f"Error during shutdown: {e}")
@@ -1307,19 +1325,28 @@ def get_metrics():
 
 @app.get("/health")
 def health_check():
-    """Health check endpoint for load balancers."""
+    """Health check endpoint for load balancers and monitoring."""
     stats = metrics.get_stats()
     
     # Check if system is healthy
     is_healthy = True
     issues = []
     
-    # Check 1: Are we processing data?
+    # Check 1: Database connection
+    db_healthy = False
+    try:
+        if db_engine:
+            pool_stats = get_pool_stats()
+            db_healthy = pool_stats["active"] >= 0  # Basic connectivity check
+    except Exception as e:
+        issues.append(f"Database check failed: {str(e)}")
+    
+    # Check 2: Are we processing data?
     if stats["last_snapshot_ago_seconds"] and stats["last_snapshot_ago_seconds"] > 10:
         is_healthy = False
         issues.append(f"No data processed in {stats['last_snapshot_ago_seconds']}s")
     
-    # Check 2: Error rate
+    # Check 3: Error rate
     if stats["total_snapshots_processed"] > 100:
         error_rate = stats["total_errors"] / stats["total_snapshots_processed"]
         if error_rate > 0.05:  # More than 5% errors
