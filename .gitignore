@@ -1,5 +1,6 @@
 backend/dataset/*.csv
 backend/loader/venv
+
 # Python
 __pycache__/
 *.pyc
@@ -12,22 +13,50 @@ venv/
 pip-log.txt
 pip-delete-this-directory.txt
 
-# cleanup: Protobuf generated files (keep source .proto, can be auto-generated later)
-# Refer #4 doc last section for similar command
+# Protobuf generated files (keep source .proto, can be auto-generated later)
 *_pb2.py
 *_pb2_grpc.py
 
-pnpm-lock.yaml
-.vscode
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+coverage.xml
+*.cover
+.hypothesis/
 
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment
 backend/.env
+.env
+.env.local
 
 # Node
 node_modules/
 dist/
-.env
+pnpm-lock.yaml
 .DS_Store
 coverage/
 
 # Dataset
 l2_clean.csv
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+*.so
+*.dylib
+*.dll
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

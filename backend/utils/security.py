@@ -5,7 +5,6 @@ from passlib.context import CryptContext
 from dotenv import load_dotenv
 import os
 import hashlib
-from passlib.context import CryptContext
 
 load_dotenv()
 
