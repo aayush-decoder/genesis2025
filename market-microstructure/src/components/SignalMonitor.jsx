@@ -17,7 +17,7 @@ export default function SignalMonitor({ snapshot }) {
       case 'critical': return '#ef4444';
       case 'high': return '#f97316';
       case 'medium': return '#eab308';
-      default: return '#3b82f6';
+      default: return '#00ff7f';
     }
   };
 
@@ -130,21 +130,22 @@ export default function SignalMonitor({ snapshot }) {
     >
       <div 
         style={{
-          backgroundColor: '#1e293b',
-          borderRadius: '12px',
-          border: '2px solid #334155',
+          background: 'rgba(0, 20, 0, 0.9)',
+          borderRadius: '0',
+          border: '2px solid rgba(0, 255, 127, 0.4)',
           width: '700px',
           maxHeight: '80vh',
           display: 'flex',
           flexDirection: 'column',
-          overflow: 'hidden'
+          overflow: 'hidden',
+          backdropFilter: 'blur(12px)',
         }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
         <div style={{
           padding: '16px 20px',
-          borderBottom: '1px solid #334155',
+          borderBottom: '1px solid rgba(0, 255, 127, 0.2)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -218,22 +219,25 @@ export default function SignalMonitor({ snapshot }) {
             style={{
               padding: '2px 8px',
               fontSize: '0.7rem',
-              backgroundColor: '#334155',
-              color: '#3b82f6',
-              border: '1px solid #475569',
-              borderRadius: '4px',
+              background: 'rgba(0, 255, 127, 0.1)',
+              color: '#00ff7f',
+              border: '1px solid rgba(0, 255, 127, 0.3)',
+              borderRadius: '0',
               cursor: 'pointer',
-              fontWeight: '500',
+              fontWeight: '600',
               marginLeft: '8px',
-              transition: 'all 0.2s'
+              transition: 'all 0.3s',
+              fontFamily: "'Orbitron', monospace",
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px',
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#475569';
-              e.currentTarget.style.color = '#60a5fa';
+              e.currentTarget.style.background = 'rgba(0, 255, 127, 0.2)';
+              e.currentTarget.style.boxShadow = '0 0 10px rgba(0, 255, 127, 0.3)';
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = '#334155';
-              e.currentTarget.style.color = '#3b82f6';
+              e.currentTarget.style.background = 'rgba(0, 255, 127, 0.1)';
+              e.currentTarget.style.boxShadow = 'none';
             }}
           >
             View All ({sortedAnomalies.length})

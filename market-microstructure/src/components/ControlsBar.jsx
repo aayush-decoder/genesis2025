@@ -167,18 +167,24 @@ export default function ControlsBar({
   const buttonStyle = {
     padding: '8px',
     fontSize: '16px',
-    backgroundColor: '#334155',
-    color: '#ffffff',
-    border: 'none',
-    borderRadius: '6px',
+    backgroundColor: 'rgba(0, 255, 127, 0.1)',
+    color: '#00ff7f',
+    border: '1px solid rgba(0, 255, 127, 0.3)',
+    borderRadius: '0',
     cursor: 'pointer',
-    transition: 'all 0.2s',
+    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     width: '36px',
     height: '36px',
-    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+    boxShadow: '0 0 10px rgba(0, 255, 127, 0.2)',
+    fontFamily: "'Orbitron', monospace",
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+    position: 'relative',
+    overflow: 'hidden'
   };
 
   const formatTimestamp = (ts) => {
@@ -194,25 +200,31 @@ export default function ControlsBar({
         gap: '8px',
         padding: '8px',
         justifyContent: 'center',
-        backgroundColor: '#1e293b',
-        borderRadius: '8px',
-        border: '1px solid #334155',
+        backgroundColor: 'rgba(0, 20, 0, 0.6)',
+        borderRadius: '0',
+        border: '1px solid rgba(0, 255, 127, 0.3)',
         opacity: isLoading ? 0.6 : 1,
-        pointerEvents: isLoading ? 'none' : 'auto'
+        pointerEvents: isLoading ? 'none' : 'auto',
+        backdropFilter: 'blur(8px)',
+        fontFamily: "'Orbitron', monospace"
       }}>
         {/* Current Timestamp Display */}
         {currentTimestamp && (
           <div style={{
             padding: '6px 12px',
-            backgroundColor: '#334155',
-            borderRadius: '6px',
+            backgroundColor: 'rgba(0, 20, 0, 0.8)',
+            borderRadius: '0',
             fontSize: '12px',
-            color: '#94a3b8',
-            fontFamily: 'monospace',
+            color: '#00ff7f',
+            fontFamily: "'Orbitron', monospace",
+            fontWeight: '600',
             marginRight: '8px',
             display: 'flex',
             alignItems: 'center',
-            gap: '5px'
+            gap: '5px',
+            border: '1px solid rgba(0, 255, 127, 0.3)',
+            textTransform: 'uppercase',
+            letterSpacing: '0.5px'
           }}>
             <Clock size={14} /> {formatTimestamp(currentTimestamp)}
           </div>
@@ -226,7 +238,10 @@ export default function ControlsBar({
               onClick={handlePlayPause}
               style={{
                 ...buttonStyle,
-                backgroundColor: isPlaying ? '#f59e0b' : '#3b82f6',
+                backgroundColor: isPlaying ? 'rgba(255, 50, 50, 0.2)' : 'rgba(0, 255, 127, 0.2)',
+                borderColor: isPlaying ? '#ff3232' : '#00ff7f',
+                color: isPlaying ? '#ff3232' : '#00ff7f',
+                boxShadow: isPlaying ? '0 0 15px rgba(255, 50, 50, 0.3)' : '0 0 15px rgba(0, 255, 127, 0.3)'
               }}
               title={isPlaying ? 'Pause' : (isPaused ? 'Resume' : 'Play')}
             >
@@ -238,7 +253,9 @@ export default function ControlsBar({
               onClick={handleSpeedToggle}
               style={{
                 ...buttonStyle,
-                backgroundColor: speed > 1 ? '#10b981' : '#334155',
+                backgroundColor: speed > 1 ? 'rgba(0, 255, 127, 0.3)' : 'rgba(0, 255, 127, 0.1)',
+                borderColor: speed > 1 ? '#00ff7f' : 'rgba(0, 255, 127, 0.3)',
+                boxShadow: speed > 1 ? '0 0 20px rgba(0, 255, 127, 0.4)' : '0 0 10px rgba(0, 255, 127, 0.2)'
               }}
               title={`Speed: ${speed}x (Toggle to ${speed === 1 ? speedUpValue : 1}x)`}
             >
@@ -260,23 +277,26 @@ export default function ControlsBar({
         {currentMode === "LIVE" && (
           <div style={{
             padding: '6px 12px',
-            backgroundColor: 'rgba(239, 68, 68, 0.1)',
-            borderRadius: '6px',
+            backgroundColor: 'rgba(255, 50, 50, 0.1)',
+            borderRadius: '0',
             fontSize: '12px',
-            color: '#ef4444',
-            fontWeight: '600',
+            color: '#ff3232',
+            fontWeight: '700',
+            fontFamily: "'Orbitron', monospace",
             marginRight: '8px',
             display: 'flex',
             alignItems: 'center',
             gap: '6px',
-            border: '1px solid rgba(239, 68, 68, 0.3)'
+            border: '1px solid rgba(255, 50, 50, 0.4)',
+            textTransform: 'uppercase',
+            letterSpacing: '1px'
           }}>
             <div style={{
               width: '6px',
               height: '6px',
-              backgroundColor: '#ef4444',
+              backgroundColor: '#ff3232',
               borderRadius: '50%',
-              animation: 'pulse 2s infinite'
+              animation: 'cyber-pulse-dot 2s infinite'
             }} />
             LIVE STREAMING
           </div>
@@ -288,7 +308,9 @@ export default function ControlsBar({
             onClick={() => setShowDownloadMenu(!showDownloadMenu)}
             style={{
               ...buttonStyle,
-              backgroundColor: showDownloadMenu ? '#3b82f6' : '#334155',
+              backgroundColor: showDownloadMenu ? 'rgba(0, 255, 127, 0.3)' : 'rgba(0, 255, 127, 0.1)',
+              borderColor: showDownloadMenu ? '#00ff7f' : 'rgba(0, 255, 127, 0.3)',
+              boxShadow: showDownloadMenu ? '0 0 20px rgba(0, 255, 127, 0.4)' : '0 0 10px rgba(0, 255, 127, 0.2)'
             }}
             title="Download data"
           >
@@ -302,13 +324,14 @@ export default function ControlsBar({
               top: '100%',
               right: 0,
               marginBottom: '4px',
-              backgroundColor: '#1e293b',
-              border: '1px solid #475569',
-              borderRadius: '6px',
+              backgroundColor: 'rgba(0, 20, 0, 0.95)',
+              border: '1px solid rgba(0, 255, 127, 0.4)',
+              borderRadius: '0',
               overflow: 'hidden',
               zIndex: 1000,
-              boxShadow: '0 -4px 12px rgba(0, 0, 0, 0.3)',
-              minWidth: '120px'
+              boxShadow: '0 -4px 12px rgba(0, 255, 127, 0.2)',
+              minWidth: '120px',
+              backdropFilter: 'blur(12px)'
             }}>
               <button
                 onClick={handleDownloadCSV}
@@ -317,18 +340,21 @@ export default function ControlsBar({
                   padding: '10px 16px',
                   backgroundColor: 'transparent',
                   border: 'none',
-                  color: '#e2e8f0',
+                  color: '#00ff7f',
                   cursor: 'pointer',
                   fontSize: '13px',
-                  fontWeight: '500',
+                  fontWeight: '600',
+                  fontFamily: "'Orbitron', monospace",
                   textAlign: 'left',
-                  transition: 'background-color 0.2s',
-                  borderBottom: '1px solid #334155',
+                  transition: 'background-color 0.3s',
+                  borderBottom: '1px solid rgba(0, 255, 127, 0.2)',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px'
+                  gap: '8px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px'
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#334155'}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(0, 255, 127, 0.1)'}
                 onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
               >
                 <FileText size={14} /> CSV
@@ -340,17 +366,20 @@ export default function ControlsBar({
                   padding: '10px 16px',
                   backgroundColor: 'transparent',
                   border: 'none',
-                  color: '#e2e8f0',
+                  color: '#00ff7f',
                   cursor: 'pointer',
                   fontSize: '13px',
-                  fontWeight: '500',
+                  fontWeight: '600',
+                  fontFamily: "'Orbitron', monospace",
                   textAlign: 'left',
-                  transition: 'background-color 0.2s',
+                  transition: 'background-color 0.3s',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px'
+                  gap: '8px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px'
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#334155'}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(0, 255, 127, 0.1)'}
                 onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
               >
                 <FileJson size={14} /> JSON
@@ -394,25 +423,27 @@ export default function ControlsBar({
           left: 0,
           right: 0,
           bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
+          backgroundColor: 'rgba(0, 0, 0, 0.8)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           zIndex: 1000
         }} onClick={() => setShowModal(false)}>
           <div style={{
-            backgroundColor: '#1e293b',
+            backgroundColor: 'rgba(0, 20, 0, 0.95)',
             padding: '20px',
-            borderRadius: '8px',
-            border: '1px solid #334155',
+            borderRadius: '0',
+            border: '1px solid rgba(0, 255, 127, 0.4)',
             minWidth: '280px',
-            boxShadow: '0 8px 16px rgba(0,0,0,0.3)'
+            boxShadow: '0 8px 16px rgba(0, 255, 127, 0.2)',
+            backdropFilter: 'blur(12px)',
+            fontFamily: "'Orbitron', monospace"
           }} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ margin: '0 0 16px 0', color: '#ffffff', fontSize: '16px' }}>Settings</h3>
+            <h3 style={{ margin: '0 0 16px 0', color: '#00ff7f', fontSize: '16px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>Settings</h3>
             
             {/* Speed Selection */}
             <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', color: '#94a3b8', fontSize: '12px', marginBottom: '8px' }}>
+              <label style={{ display: 'block', color: '#00ff7f', fontSize: '12px', marginBottom: '8px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Speed Up Value
               </label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
@@ -423,11 +454,17 @@ export default function ControlsBar({
                     style={{
                       padding: '6px 12px',
                       fontSize: '12px',
-                      backgroundColor: tempSpeedUp === val ? '#3b82f6' : '#334155',
-                      color: '#ffffff',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer'
+                      backgroundColor: tempSpeedUp === val ? 'rgba(0, 255, 127, 0.3)' : 'rgba(0, 255, 127, 0.1)',
+                      color: tempSpeedUp === val ? '#000000' : '#00ff7f',
+                      border: tempSpeedUp === val ? '1px solid #00ff7f' : '1px solid rgba(0, 255, 127, 0.3)',
+                      borderRadius: '0',
+                      cursor: 'pointer',
+                      fontFamily: "'Orbitron', monospace",
+                      fontWeight: '700',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                      boxShadow: tempSpeedUp === val ? '0 0 15px rgba(0, 255, 127, 0.3)' : 'none'
                     }}
                   >
                     {val}x
@@ -438,7 +475,7 @@ export default function ControlsBar({
 
             {/* Go Back Input */}
             <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', color: '#94a3b8', fontSize: '12px', marginBottom: '8px' }}>
+              <label style={{ display: 'block', color: '#00ff7f', fontSize: '12px', marginBottom: '8px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Go Back (seconds)
               </label>
               <input
@@ -451,11 +488,13 @@ export default function ControlsBar({
                 style={{
                   width: '100%',
                   padding: '8px',
-                  backgroundColor: '#334155',
-                  color: '#ffffff',
-                  border: '1px solid #475569',
-                  borderRadius: '4px',
-                  fontSize: '13px'
+                  backgroundColor: 'rgba(0, 20, 0, 0.8)',
+                  color: '#00ff7f',
+                  border: '1px solid rgba(0, 255, 127, 0.3)',
+                  borderRadius: '0',
+                  fontSize: '13px',
+                  fontFamily: "'Orbitron', monospace",
+                  fontWeight: '600'
                 }}
               />
             </div>
@@ -467,12 +506,17 @@ export default function ControlsBar({
                 width: '100%',
                 padding: '10px',
                 fontSize: '13px',
-                fontWeight: '600',
-                backgroundColor: '#3b82f6',
-                color: '#ffffff',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer'
+                fontWeight: '700',
+                fontFamily: "'Orbitron', monospace",
+                backgroundColor: 'rgba(0, 255, 127, 0.2)',
+                color: '#00ff7f',
+                border: '1px solid #00ff7f',
+                borderRadius: '0',
+                cursor: 'pointer',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                boxShadow: '0 0 15px rgba(0, 255, 127, 0.3)'
               }}
             >
               Apply

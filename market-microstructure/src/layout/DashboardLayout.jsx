@@ -221,7 +221,7 @@ const DashboardLayout = React.memo(function DashboardLayout({
     width: "100vw",
     height: "100vh",
     overflow: "hidden",
-    backgroundColor: "#0f172a",
+    backgroundColor: "#0a0f0a",
     display: "flex",
     flexDirection: "column",
     padding: 0,
@@ -231,7 +231,7 @@ const DashboardLayout = React.memo(function DashboardLayout({
     width: "100vw",
     height: "100vh",
     overflow: "hidden",
-    backgroundColor: "#0f172a",
+    backgroundColor: "#0a0f0a",
     display: "flex",
     padding: "16px 96px",
     gap: "12px",
@@ -250,22 +250,26 @@ const DashboardLayout = React.memo(function DashboardLayout({
           left: "0",
           transform: "translateY(-50%)",
           padding: "16px 8px",
-          backgroundColor: "#334155",
-          border: "1px solid #475569",
+          background: "rgba(0, 255, 127, 0.1)",
+          border: "1px solid rgba(0, 255, 127, 0.3)",
           borderLeft: "none",
-          borderTopRightRadius: "8px",
-          borderBottomRightRadius: "8px",
-          color: "#e2e8f0",
+          borderTopRightRadius: "0",
+          borderBottomRightRadius: "0",
+          color: "#00ff7f",
           cursor: "pointer",
           fontSize: "18px",
           zIndex: 998,
-          transition: "all 0.2s",
+          transition: "all 0.3s",
+          fontFamily: "'Orbitron', monospace",
+          backdropFilter: "blur(8px)",
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.backgroundColor = "#475569";
+          e.currentTarget.style.background = "rgba(0, 255, 127, 0.2)";
+          e.currentTarget.style.boxShadow = "0 0 15px rgba(0, 255, 127, 0.3)";
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.backgroundColor = "#334155";
+          e.currentTarget.style.background = "rgba(0, 255, 127, 0.1)";
+          e.currentTarget.style.boxShadow = "none";
         }}
       >
         <Menu size={18} />
@@ -292,13 +296,26 @@ const DashboardLayout = React.memo(function DashboardLayout({
               <div
                 style={{
                   height: "145px",
-                  backgroundColor: "#1e293b",
-                  borderRadius: "8px",
-                  border: "1px solid #334155",
+                  background: "rgba(0, 20, 0, 0.4)",
+                  border: "1px solid rgba(0, 255, 127, 0.2)",
+                  borderRadius: "0",
                   overflow: "hidden",
                   padding: "6px",
+                  backdropFilter: "blur(8px)",
+                  position: "relative",
                 }}
               >
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: "2px",
+                    background: "linear-gradient(90deg, transparent, #00ff7f, transparent)",
+                    opacity: 0.3,
+                  }}
+                />
                 <div
                   style={{
                     width: "125%",
@@ -314,13 +331,26 @@ const DashboardLayout = React.memo(function DashboardLayout({
               <div
                 style={{
                   height: "145px",
-                  backgroundColor: "#1e293b",
-                  borderRadius: "8px",
-                  border: "1px solid #334155",
+                  background: "rgba(0, 20, 0, 0.4)",
+                  border: "1px solid rgba(0, 255, 127, 0.2)",
+                  borderRadius: "0",
                   overflow: "hidden",
                   padding: "6px",
+                  backdropFilter: "blur(8px)",
+                  position: "relative",
                 }}
               >
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: "2px",
+                    background: "linear-gradient(90deg, transparent, #00ff7f, transparent)",
+                    opacity: 0.3,
+                  }}
+                />
                 <div
                   style={{
                     height: "calc(100% - 12px)",
@@ -342,14 +372,27 @@ const DashboardLayout = React.memo(function DashboardLayout({
               <div
                 style={{
                   height: "116px",
-                  backgroundColor: "#1e293b",
-                  borderRadius: "8px",
-                  border: "1px solid #334155",
+                  background: "rgba(0, 20, 0, 0.4)",
+                  border: "1px solid rgba(0, 255, 127, 0.2)",
+                  borderRadius: "0",
                   overflow: "hidden",
                   padding: "6px",
                   fontSize: "0.75rem",
+                  backdropFilter: "blur(8px)",
+                  position: "relative",
                 }}
               >
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: "2px",
+                    background: "linear-gradient(90deg, transparent, #00ff7f, transparent)",
+                    opacity: 0.3,
+                  }}
+                />
                 <div
                   style={{
                     transform: "scale(0.8)",
@@ -366,19 +409,32 @@ const DashboardLayout = React.memo(function DashboardLayout({
               <div
                 style={{
                   height: "273px",
-                  backgroundColor: "#1e293b",
-                  borderRadius: "8px",
-                  border: "1px solid #334155",
+                  background: "rgba(0, 20, 0, 0.4)",
+                  border: "1px solid rgba(0, 255, 127, 0.2)",
+                  borderRadius: "0",
                   overflow: "hidden",
                   minHeight: 0,
                   display: "flex",
                   flexDirection: "column",
+                  backdropFilter: "blur(8px)",
+                  position: "relative",
                 }}
               >
                 <div
                   style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: "2px",
+                    background: "linear-gradient(90deg, transparent, #00ff7f, transparent)",
+                    opacity: 0.3,
+                  }}
+                />
+                <div
+                  style={{
                     padding: "10px",
-                    borderBottom: "1px solid #334155",
+                    borderBottom: "1px solid rgba(0, 255, 127, 0.2)",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
@@ -389,8 +445,12 @@ const DashboardLayout = React.memo(function DashboardLayout({
                     style={{
                       margin: 0,
                       fontSize: "13px",
-                      fontWeight: "600",
-                      color: "#e2e8f0",
+                      fontWeight: "700",
+                      fontFamily: "'Orbitron', monospace",
+                      color: "#00ff7f",
+                      textTransform: "uppercase",
+                      letterSpacing: "1px",
+                      textShadow: "0 0 10px rgba(0, 255, 127, 0.3)",
                     }}
                   >
                     {currentFeature.title}
@@ -405,20 +465,23 @@ const DashboardLayout = React.memo(function DashboardLayout({
                       onClick={handlePrevFeature}
                       style={{
                         padding: "3px 10px",
-                        backgroundColor: "#334155",
-                        border: "1px solid #475569",
-                        borderRadius: "4px",
-                        color: "#e2e8f0",
+                        background: "rgba(0, 255, 127, 0.1)",
+                        border: "1px solid rgba(0, 255, 127, 0.3)",
+                        borderRadius: "0",
+                        color: "#00ff7f",
                         cursor: "pointer",
                         fontSize: "12px",
-                        transition: "all 0.2s",
+                        transition: "all 0.3s",
+                        fontFamily: "'Orbitron', monospace",
                       }}
-                      onMouseEnter={(e) =>
-                        (e.currentTarget.style.backgroundColor = "#475569")
-                      }
-                      onMouseLeave={(e) =>
-                        (e.currentTarget.style.backgroundColor = "#334155")
-                      }
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = "rgba(0, 255, 127, 0.2)";
+                        e.currentTarget.style.boxShadow = "0 0 10px rgba(0, 255, 127, 0.3)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "rgba(0, 255, 127, 0.1)";
+                        e.currentTarget.style.boxShadow = "none";
+                      }}
                     >
                       <ChevronLeft size={12} />
                     </button>
@@ -426,20 +489,23 @@ const DashboardLayout = React.memo(function DashboardLayout({
                       onClick={handleNextFeature}
                       style={{
                         padding: "3px 10px",
-                        backgroundColor: "#334155",
-                        border: "1px solid #475569",
-                        borderRadius: "4px",
-                        color: "#e2e8f0",
+                        background: "rgba(0, 255, 127, 0.1)",
+                        border: "1px solid rgba(0, 255, 127, 0.3)",
+                        borderRadius: "0",
+                        color: "#00ff7f",
                         cursor: "pointer",
                         fontSize: "12px",
-                        transition: "all 0.2s",
+                        transition: "all 0.3s",
+                        fontFamily: "'Orbitron', monospace",
                       }}
-                      onMouseEnter={(e) =>
-                        (e.currentTarget.style.backgroundColor = "#475569")
-                      }
-                      onMouseLeave={(e) =>
-                        (e.currentTarget.style.backgroundColor = "#334155")
-                      }
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = "rgba(0, 255, 127, 0.2)";
+                        e.currentTarget.style.boxShadow = "0 0 10px rgba(0, 255, 127, 0.3)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "rgba(0, 255, 127, 0.1)";
+                        e.currentTarget.style.boxShadow = "none";
+                      }}
                     >
                       <ChevronRight size={12} />
                     </button>
@@ -447,20 +513,23 @@ const DashboardLayout = React.memo(function DashboardLayout({
                       onClick={handleOpenModal}
                       style={{
                         padding: "3px 10px",
-                        backgroundColor: "#334155",
-                        border: "1px solid #475569",
-                        borderRadius: "4px",
-                        color: "#e2e8f0",
+                        background: "rgba(0, 255, 127, 0.1)",
+                        border: "1px solid rgba(0, 255, 127, 0.3)",
+                        borderRadius: "0",
+                        color: "#00ff7f",
                         cursor: "pointer",
                         fontSize: "11px",
-                        transition: "all 0.2s",
+                        transition: "all 0.3s",
+                        fontFamily: "'Orbitron', monospace",
                       }}
-                      onMouseEnter={(e) =>
-                        (e.currentTarget.style.backgroundColor = "#475569")
-                      }
-                      onMouseLeave={(e) =>
-                        (e.currentTarget.style.backgroundColor = "#334155")
-                      }
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = "rgba(0, 255, 127, 0.2)";
+                        e.currentTarget.style.boxShadow = "0 0 10px rgba(0, 255, 127, 0.3)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "rgba(0, 255, 127, 0.1)";
+                        e.currentTarget.style.boxShadow = "none";
+                      }}
                     >
                       <Maximize2 size={11} />
                     </button>
@@ -518,14 +587,27 @@ const DashboardLayout = React.memo(function DashboardLayout({
               <div
                 style={{
                   height: "193px",
-                  backgroundColor: "#1e293b",
-                  borderRadius: "8px",
-                  border: "1px solid #334155",
+                  background: "rgba(0, 20, 0, 0.4)",
+                  border: "1px solid rgba(0, 255, 127, 0.2)",
+                  borderRadius: "0",
                   overflow: "hidden",
                   padding: "8px",
                   fontSize: "0.8rem",
+                  backdropFilter: "blur(8px)",
+                  position: "relative",
                 }}
               >
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: "2px",
+                    background: "linear-gradient(90deg, transparent, #00ff7f, transparent)",
+                    opacity: 0.3,
+                  }}
+                />
                 <div
                   style={{
                     transform: "scale(0.80)",
@@ -542,15 +624,28 @@ const DashboardLayout = React.memo(function DashboardLayout({
               <div
                 style={{
                   height: "450px",
-                  backgroundColor: "#1e293b",
-                  borderRadius: "8px",
-                  border: "1px solid #334155",
+                  background: "rgba(0, 20, 0, 0.4)",
+                  border: "1px solid rgba(0, 255, 127, 0.2)",
+                  borderRadius: "0",
                   overflow: "hidden",
                   minHeight: 0,
                   padding: "6px",
                   fontSize: "0.65rem",
+                  backdropFilter: "blur(8px)",
+                  position: "relative",
                 }}
               >
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: "2px",
+                    background: "linear-gradient(90deg, transparent, #00ff7f, transparent)",
+                    opacity: 0.3,
+                  }}
+                />
                 <div
                   style={{
                     transform: "scale(0.695)",
@@ -584,14 +679,15 @@ const DashboardLayout = React.memo(function DashboardLayout({
               >
                 <div
                   style={{
-                    backgroundColor: "#1e293b",
-                    borderRadius: "12px",
-                    border: "2px solid #334155",
+                    background: "rgba(0, 20, 0, 0.9)",
+                    borderRadius: "0",
+                    border: "2px solid rgba(0, 255, 127, 0.4)",
                     width: "90%",
                     height: "90%",
                     display: "flex",
                     flexDirection: "column",
                     overflow: "hidden",
+                    backdropFilter: "blur(12px)",
                   }}
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -599,7 +695,7 @@ const DashboardLayout = React.memo(function DashboardLayout({
                   <div
                     style={{
                       padding: "16px 20px",
-                      borderBottom: "1px solid #334155",
+                      borderBottom: "1px solid rgba(0, 255, 127, 0.2)",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "space-between",
@@ -610,8 +706,12 @@ const DashboardLayout = React.memo(function DashboardLayout({
                       style={{
                         margin: 0,
                         fontSize: "18px",
-                        fontWeight: "600",
-                        color: "#e2e8f0",
+                        fontWeight: "700",
+                        fontFamily: "'Orbitron', monospace",
+                        color: "#00ff7f",
+                        textTransform: "uppercase",
+                        letterSpacing: "1px",
+                        textShadow: "0 0 10px rgba(0, 255, 127, 0.3)",
                       }}
                     >
                       {currentFeature.title} - Detailed View
@@ -620,24 +720,29 @@ const DashboardLayout = React.memo(function DashboardLayout({
                       onClick={handleCloseModal}
                       style={{
                         padding: "6px 12px",
-                        backgroundColor: "#ef4444",
-                        border: "none",
-                        borderRadius: "6px",
-                        color: "#ffffff",
+                        background: "rgba(255, 50, 50, 0.2)",
+                        border: "1px solid #ff3232",
+                        borderRadius: "0",
+                        color: "#ff3232",
                         cursor: "pointer",
                         fontSize: "14px",
-                        fontWeight: "600",
-                        transition: "all 0.2s",
+                        fontWeight: "700",
+                        fontFamily: "'Orbitron', monospace",
+                        transition: "all 0.3s",
                         display: "flex",
                         alignItems: "center",
                         gap: "6px",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.5px",
                       }}
-                      onMouseEnter={(e) =>
-                        (e.currentTarget.style.backgroundColor = "#dc2626")
-                      }
-                      onMouseLeave={(e) =>
-                        (e.currentTarget.style.backgroundColor = "#ef4444")
-                      }
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = "rgba(255, 50, 50, 0.3)";
+                        e.currentTarget.style.boxShadow = "0 0 15px rgba(255, 50, 50, 0.4)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "rgba(255, 50, 50, 0.2)";
+                        e.currentTarget.style.boxShadow = "none";
+                      }}
                     >
                       <X size={14} /> Close
                     </button>

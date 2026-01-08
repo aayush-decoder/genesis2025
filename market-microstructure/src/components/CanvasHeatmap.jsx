@@ -55,13 +55,14 @@ export default function CanvasHeatmap({
     ctx.clearRect(0, 0, w, h);
 
     // Background
-    ctx.fillStyle = "#0f172a";
+    ctx.fillStyle = "#0a0f0a";
     ctx.fillRect(0, 0, w, h);
 
     if (!data || data.length === 0) {
-      ctx.fillStyle = "#64748b";
-      ctx.font = "12px sans-serif";
-      ctx.fillText("Waiting for data...", w / 2 - 40, h / 2);
+      ctx.fillStyle = "#00ff7f";
+      ctx.font = "12px 'Orbitron', monospace";
+      ctx.textAlign = "center";
+      ctx.fillText("Waiting for data...", w / 2, h / 2);
       return;
     }
 
@@ -95,7 +96,7 @@ export default function CanvasHeatmap({
         const vol = snapshot.asks[i][1];
         const intensity = Math.min(1, vol / (maxVol * 0.8));
 
-        ctx.fillStyle = `rgba(239, 68, 68, ${intensity})`;
+        ctx.fillStyle = `rgba(255, 50, 50, ${intensity})`;
         ctx.fillRect(
           x,
           PADDING.top + rowIndex * cellHeight,
@@ -110,7 +111,7 @@ export default function CanvasHeatmap({
         const vol = snapshot.bids[i][1];
         const intensity = Math.min(1, vol / (maxVol * 0.8));
 
-        ctx.fillStyle = `rgba(34, 197, 94, ${intensity})`;
+        ctx.fillStyle = `rgba(0, 255, 127, ${intensity})`;
         ctx.fillRect(
           x,
           PADDING.top + rowIndex * cellHeight,
@@ -122,22 +123,22 @@ export default function CanvasHeatmap({
 
     // --- Draw Midline ---
     ctx.beginPath();
-    ctx.strokeStyle = "#334155";
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(0, 255, 127, 0.4)";
+    ctx.lineWidth = 2;
     ctx.moveTo(PADDING.left, PADDING.top + CHART_HEIGHT / 2);
     ctx.lineTo(w - PADDING.right, PADDING.top + CHART_HEIGHT / 2);
     ctx.stroke();
 
     // --- Draw Y-Axis Labels ---
-    ctx.fillStyle = "#e5e7eb";
-    ctx.font = "10px sans-serif";
+    ctx.fillStyle = "#00ff7f";
+    ctx.font = "10px 'Orbitron', monospace";
     ctx.textAlign = "left";
-    ctx.fillStyle = "rgba(15, 23, 42, 0.8)";
+    ctx.fillStyle = "rgba(0, 20, 0, 0.9)";
     ctx.fillRect(PADDING.left, PADDING.top, 45, 12);
     ctx.fillRect(PADDING.left, PADDING.top + CHART_HEIGHT / 2 - 6, 45, 12);
     ctx.fillRect(PADDING.left, PADDING.top + CHART_HEIGHT - 12, 45, 12);
 
-    ctx.fillStyle = "#e5e7eb";
+    ctx.fillStyle = "#00ff7f";
     // Top Label (Ask 10)
     ctx.fillText("Ask 10", PADDING.left + 3, PADDING.top + 10);
     // Mid Label (Spread)
@@ -160,10 +161,10 @@ export default function CanvasHeatmap({
         // Highlight Column
         const colX = PADDING.left + safeIndex * cellWidth;
 
-        ctx.fillStyle = "rgba(255, 255, 255, 0.1)";
+        ctx.fillStyle = "rgba(0, 255, 127, 0.1)";
         ctx.fillRect(colX, PADDING.top, cellWidth, CHART_HEIGHT);
 
-        ctx.strokeStyle = "#fff";
+        ctx.strokeStyle = "#00ff7f";
         ctx.lineWidth = 1;
         ctx.strokeRect(colX, PADDING.top, cellWidth, CHART_HEIGHT);
 
@@ -199,10 +200,12 @@ export default function CanvasHeatmap({
         style={{
           margin: "0 0 12px 0",
           fontSize: "0.875rem",
-          fontWeight: 600,
-          color: "#e5e7eb",
+          fontWeight: 700,
+          color: "#00ff7f",
           textTransform: "uppercase",
-          letterSpacing: "0.5px",
+          letterSpacing: "1px",
+          fontFamily: "'Orbitron', monospace",
+          textShadow: "0 0 10px rgba(0, 255, 127, 0.3)"
         }}
       >
         Market Depth L2

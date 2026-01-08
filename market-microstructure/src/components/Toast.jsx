@@ -28,7 +28,7 @@ export default function Toast({ message, type = 'info', onClose }) {
   const colors = {
     success: { bg: '#10b981', border: '#059669' },
     error: { bg: '#ef4444', border: '#dc2626' },
-    info: { bg: '#3b82f6', border: '#2563eb' },
+    info: { bg: '#089a51ff', border: '#00cc66' },
     warning: { bg: '#f59e0b', border: '#d97706' }
   };
 

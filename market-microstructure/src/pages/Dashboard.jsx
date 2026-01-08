@@ -308,53 +308,15 @@ export default function Dashboard() {
 
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#0f172a' }}>
-      {/* Mode Switching UI */}
-      <div style={{
-        position: 'fixed',
-        top: '20px',
-        left: '50%',
-        transform: 'translateX(-50%)',
-        zIndex: 1001,
-        display: 'flex',
-        alignItems: 'center',
-        gap: '12px',
-        padding: '8px 16px',
-        backgroundColor: '#1e293b',
-        borderRadius: '8px',
-        border: '1px solid #334155',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
-      }}>
+    <div className="cyber-dashboard" style={{ minHeight: '100vh', backgroundColor: '#0a0f0a' }}>
+      {/* Mode Switching UI - Cyber Theme */}
+      <div className="cyber-mode-switcher">
         {/* Mode Buttons */}
-        <div style={{ display: 'flex', gap: '4px' }}>
+        <div className="cyber-mode-buttons">
           <button
             onClick={handleReplayMode}
             disabled={isModeLoading}
-            style={{
-              padding: '6px 12px',
-              fontSize: '12px',
-              fontWeight: '600',
-              backgroundColor: currentMode === 'REPLAY' ? '#3b82f6' : '#334155',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: isModeLoading ? 'not-allowed' : 'pointer',
-              transition: 'all 0.2s',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              opacity: isModeLoading ? 0.6 : 1
-            }}
-            onMouseEnter={(e) => {
-              if (!isModeLoading && currentMode !== 'REPLAY') {
-                e.currentTarget.style.backgroundColor = '#475569';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (currentMode !== 'REPLAY') {
-                e.currentTarget.style.backgroundColor = '#334155';
-              }
-            }}
+            className={`cyber-mode-btn ${currentMode === 'REPLAY' ? 'active' : ''}`}
           >
             <Play size={12} />
             REPLAY
@@ -363,31 +325,7 @@ export default function Dashboard() {
           <button
             onClick={handleLiveMode}
             disabled={isModeLoading}
-            style={{
-              padding: '6px 12px',
-              fontSize: '12px',
-              fontWeight: '600',
-              backgroundColor: currentMode === 'LIVE' ? '#ef4444' : '#334155',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: isModeLoading ? 'not-allowed' : 'pointer',
-              transition: 'all 0.2s',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              opacity: isModeLoading ? 0.6 : 1
-            }}
-            onMouseEnter={(e) => {
-              if (!isModeLoading && currentMode !== 'LIVE') {
-                e.currentTarget.style.backgroundColor = '#475569';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (currentMode !== 'LIVE') {
-                e.currentTarget.style.backgroundColor = '#334155';
-              }
-            }}
+            className={`cyber-mode-btn cyber-mode-btn-live ${currentMode === 'LIVE' ? 'active' : ''}`}
           >
             <Radio size={12} />
             LIVE
@@ -397,26 +335,12 @@ export default function Dashboard() {
         {/* Symbol Selector (LIVE only) */}
         {currentMode === 'LIVE' && (
           <>
-            <div style={{
-              width: '1px',
-              height: '20px',
-              backgroundColor: '#475569'
-            }} />
+            <div className="cyber-divider" />
             <select
               value={selectedSymbol}
               onChange={(e) => handleSymbolChange(e.target.value)}
               disabled={isModeLoading}
-              style={{
-                padding: '4px 8px',
-                fontSize: '12px',
-                fontWeight: '500',
-                backgroundColor: '#334155',
-                color: '#e2e8f0',
-                border: '1px solid #475569',
-                borderRadius: '4px',
-                cursor: isModeLoading ? 'not-allowed' : 'pointer',
-                opacity: isModeLoading ? 0.6 : 1
-              }}
+              className="cyber-symbol-select"
             >
               {SYMBOLS.map(symbol => (
                 <option key={symbol.value} value={symbol.value}>
@@ -428,29 +352,10 @@ export default function Dashboard() {
         )}
 
         {/* Current Mode Indicator */}
-        <div style={{
-          padding: '4px 8px',
-          fontSize: '10px',
-          fontWeight: '700',
-          backgroundColor: currentMode === 'LIVE' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.2)',
-          color: currentMode === 'LIVE' ? '#ef4444' : '#3b82f6',
-          borderRadius: '12px',
-          textTransform: 'uppercase',
-          letterSpacing: '0.5px',
-          border: `1px solid ${currentMode === 'LIVE' ? '#ef4444' : '#3b82f6'}`,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px'
-        }}>
+        <div className={`cyber-mode-indicator ${currentMode === 'LIVE' ? 'live' : 'replay'}`}>
           {currentMode === 'LIVE' ? (
             <>
-              <div style={{
-                width: '6px',
-                height: '6px',
-                backgroundColor: '#ef4444',
-                borderRadius: '50%',
-                animation: 'pulse 2s infinite'
-              }} />
+              <div className="cyber-pulse-dot" />
               LIVE {selectedSymbol}
             </>
           ) : (
@@ -460,7 +365,7 @@ export default function Dashboard() {
 
         {/* Loading indicator */}
         {isModeLoading && (
-          <Loader2 size={14} className="animate-spin" style={{ color: '#94a3b8' }} />
+          <Loader2 size={14} className="animate-spin cyber-loader" />
         )}
       </div>
 
@@ -475,45 +380,13 @@ export default function Dashboard() {
 
       {/* Loading Overlay */}
       {isLoading && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.3)',
-          zIndex: 9999,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}>
-          <div className="loading-overlay-text" style={{
-            padding: '20px 40px',
-            backgroundColor: '#1e293b',
-            borderRadius: '12px',
-            border: '2px solid #334155',
-            color: '#ffffff',
-            fontSize: '16px',
-            fontWeight: 600,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px'
-          }}>
+        <div className="cyber-loading-overlay">
+          <div className="cyber-loading-content">
             <Loader2 size={20} className="animate-spin" />
             Processing...
           </div>
         </div>
       )}
-
-      {/* Data Export Controls
-      <div className="data-export-container" style={{
-        position: 'fixed',
-        top: '20px',
-        right: '20px',
-        zIndex: 1000
-      }}>
-        <DataExport data={data} showToast={showToast} />
-      </div> */}
 
       <DashboardLayout
         data={data}
