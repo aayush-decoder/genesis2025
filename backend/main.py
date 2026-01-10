@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from routers import auth
 from utils.database import Base, engine as db_engine
 from analytics_core import AnalyticsEngine, db_row_to_snapshot, MarketSimulator
-from db import get_connection, return_connection, close_all_connections, get_pool_stats
+from db import get_connection, return_connection, close_all_connections, get_pool_stats, get_connection_pool
 
 from datetime import datetime
 from decimal import Decimal
@@ -153,8 +153,19 @@ async def lifespan(app: FastAPI):
     if db_engine:
         Base.metadata.create_all(bind=db_engine)
     
+    # Initialize async database pool
+    try:
+        await get_connection_pool()
+        logger.info("✅ Async database pool initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize async database pool: {e}")
+    
     # Initialize C++ engine
     initialize_cpp_engine()
+
+    # Start Live Data Dispatcher
+    asyncio.create_task(live_data_dispatcher())
+    asyncio.create_task(live_grpc_loop())
     
     # Session cleanup task
     async def cleanup_sessions_periodically():
@@ -792,6 +803,46 @@ def analytics_worker():
 
 
 # live ingestion
+async def live_data_dispatcher():
+    """
+    Dispatcher to broadcast live data from global queue to all active session queues.
+    This bridges the gap between singleton ingestion and per-session workers.
+    """
+    logger.info("Starting live data dispatcher...")
+    while True:
+        try:
+            # Get snapshot from global queue
+            try:
+                snapshot = raw_snapshot_queue.get_nowait()
+                if "timestamp" in snapshot:
+                    # logger.debug(f"DEBUG DISPATCHER: Got snapshot with timestamp: {snapshot['timestamp']}")
+                    pass
+            except queue.Empty:
+                await asyncio.sleep(0.005) # 5ms poll
+                continue
+                
+            # Broadcast to all active sessions
+            active_count = 0
+            # Snapshot list of sessions to avoid runtime modification issues
+            current_sessions = list(session_manager.sessions.values())
+            
+            for session in current_sessions:
+                if session.is_active():
+                    try:
+                        session.raw_snapshot_queue.put_nowait(snapshot)
+                        active_count += 1
+                    except queue.Full:
+                        pass # Drop if full to prevent blocking
+            
+            # Also update global buffer for /features API
+            if len(data_buffer) >= MAX_BUFFER_SIZE:
+                data_buffer.pop(0)
+            data_buffer.append(snapshot)
+            
+        except Exception as e:
+            logger.error(f"Live data dispatcher error: {e}")
+            await asyncio.sleep(1)
+
 async def live_grpc_loop():
     global MODE
     
@@ -827,6 +878,9 @@ async def live_grpc_loop():
                         "symbol": msg.symbol,
                         "source": msg.source
                     }
+                    # logger.debug(f"DEBUG LIVE_GRPC: Generated timestamp: {snapshot['timestamp']}")
+
+
 
                     try:
                         raw_snapshot_queue.put_nowait(snapshot)
@@ -952,11 +1006,18 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         asyncio.create_task(session_analytics_worker_async(session))
         
         # Special case for ModelTest: Use CSV Replay
-        if "model-test" in session_id:
-            logger.info(f"Session {session_id} identified as ModelTest. Using CSV Replay.")
+        # Special case for ModelTest: Use CSV Replay ONLY if not in LIVE mode
+        if "model-test" in session_id and MODE != "LIVE":
+            logger.info(f"Session {session_id} identified as ModelTest and MODE={MODE}. Using CSV Replay.")
             asyncio.create_task(session_csv_replay_loop(session, "../l2_clean.csv"))
         else:
-            asyncio.create_task(session_replay_loop(session))
+            # In LIVE mode, or normal replay, we don't force CSV replay loop for model-test
+            # If LIVE, the live_data_dispatcher will feed the queue.
+            # If REPLAY, session_replay_loop will feed it from DB.
+            if MODE == "LIVE":
+                 logger.info(f"Session {session_id} started in LIVE mode. Listening for live data.")
+            else:
+                 asyncio.create_task(session_replay_loop(session))
             
         asyncio.create_task(session_broadcast_loop(session))
     
@@ -1337,7 +1398,7 @@ def health_check():
     try:
         if db_engine:
             pool_stats = get_pool_stats()
-            db_healthy = pool_stats["active"] >= 0  # Basic connectivity check
+            db_healthy = pool_stats["status"] == "active"  # Basic connectivity check
     except Exception as e:
         issues.append(f"Database check failed: {str(e)}")
     

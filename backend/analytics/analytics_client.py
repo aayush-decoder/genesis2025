@@ -29,7 +29,9 @@ class CppAnalyticsClient:
         latency_ms = (time.time() - start) * 1000
 
         return {
-            "timestamp": resp.timestamp,
+            "timestamp": resp.timestamp or snapshot.get("timestamp"),
+            "exchange_ts": snapshot.get("exchange_ts"),
+            "ingest_ts": snapshot.get("ingest_ts"),
             "mid_price": resp.mid_price,
             "spread": resp.spread,
             "ofi": resp.ofi,
