@@ -590,7 +590,16 @@ async def session_broadcast_loop(session: UserSession):
                 session.data_buffer.append(processed)
                 
                 # Send to this session only
-                await manager.send_to_session(session.session_id, processed)
+                message = {**processed, "type": "snapshot"}
+                await manager.send_to_session(session.session_id, message)
+
+                # Check for Strategy Trade Events and broadcast separately
+                if "strategy" in processed and processed["strategy"] and processed["strategy"].get("trade_event"):
+                    trade_msg = {
+                        "type": "trade_event",
+                        "data": processed["strategy"]["trade_event"]
+                    }
+                    await manager.send_to_session(session.session_id, trade_msg)
                 
                 metrics.record_snapshot(processing_time, processing_time)
             
@@ -728,7 +737,8 @@ async def broadcast_loop():
                 if len(data_buffer) > MAX_BUFFER:
                     data_buffer.pop(0)
                 
-                await manager.broadcast(snapshot)
+                msg = {**snapshot, "type": "snapshot"}
+                await manager.broadcast(msg)
             
             await asyncio.sleep(0.01)
         except Exception as e:
@@ -750,7 +760,8 @@ async def processed_broadcast_loop():
                 if len(data_buffer) > MAX_BUFFER_SIZE:
                     data_buffer.pop(0)
 
-                await manager.broadcast(processed)
+                msg = {**processed, "type": "snapshot"}
+                await manager.broadcast(msg)
 
                 total_latency = processing_time  # DB + queue already removed
                 metrics.record_snapshot(total_latency, processing_time)

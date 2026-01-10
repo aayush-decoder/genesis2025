@@ -1,406 +1,360 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-    ArrowUp, ArrowDown, Minus, Activity, Server, Clock,
-    Play, Square, TrendingUp, DollarSign, List, BarChart2, Zap
+    Activity, Server, Clock, Play, Square, TrendingUp, DollarSign,
+    BarChart2, Zap, RefreshCw, Triangle
 } from 'lucide-react';
 import DashboardLayout from '../layout/DashboardLayout';
-import CanvasPriceChart from '../components/CanvasPriceChart';
+import { TradingViewChart } from '../components/TradingViewChart';
 import logger from '../utils/logger';
 
-// --- Components ---
+// --- STYLES CONSTANTS ---
+const ORBITRON = "'Orbitron', monospace";
+const MONO = "monospace";
+const ACCENT = "#00ff7f";
+const GLASS_BG = "rgba(0, 10, 0, 0.7)";
+const BORDER = "1px solid rgba(0, 255, 127, 0.2)";
 
-const MetricCard = ({ label, value, subValue, trend, color, icon: Icon }) => (
-    <div className="bg-slate-900 border border-slate-800 rounded-lg p-3 flex flex-col justify-between h-full relative overflow-hidden group hover:border-slate-700 transition-colors">
-        <div className={`absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity ${color}`}>
-            <Icon size={40} />
-        </div>
-        <div>
-            <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">{label}</span>
-            <div className={`text-2xl font-mono font-bold text-white mt-1 tracking-tight`}>
-                {value}
+// --- COMPONENTS ---
+
+const GenesisPanel = ({ children, style = {}, title, rightHeader }) => {
+    return (
+        <div style={{
+            background: GLASS_BG,
+            border: BORDER,
+            backdropFilter: "blur(10px)",
+            position: "relative",
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+            ...style
+        }}>
+            {/* Top Laser */}
+            <div style={{
+                position: "absolute", top: 0, left: 0, right: 0, height: "2px",
+                background: `linear-gradient(90deg, transparent, ${ACCENT}, transparent)`,
+                opacity: 0.5
+            }} />
+
+            {/* Header */}
+            {(title || rightHeader) && (
+                <div style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    padding: "8px 12px", borderBottom: "1px solid rgba(0,255,127,0.1)",
+                    background: "rgba(0,0,0,0.3)", flexShrink: 0
+                }}>
+                    {title && (
+                        <span style={{ fontFamily: ORBITRON, fontSize: "12px", fontWeight: "bold", color: ACCENT, letterSpacing: "1px" }}>
+                            {title}
+                        </span>
+                    )}
+                    {rightHeader}
+                </div>
+            )}
+
+            {/* Content */}
+            <div style={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative" }}>
+                {children}
             </div>
         </div>
-        {subValue && (
-            <div className="text-xs text-slate-400 font-mono mt-1 border-t border-slate-800/50 pt-1 flex justify-between items-center">
-                <span>{subValue}</span>
-                {trend && <span className={trend > 0 ? 'text-green-400' : 'text-red-400'}>{trend > 0 ? '▲' : '▼'}</span>}
-            </div>
-        )}
+    );
+};
+
+const MetricBox = ({ label, value, sub, color = "white" }) => (
+    <div style={{
+        display: "flex", flexDirection: "column", padding: "10px",
+        background: "rgba(0,255,127,0.05)", border: "1px solid rgba(0,255,127,0.1)", borderRadius: "2px"
+    }}>
+        <span style={{ fontFamily: ORBITRON, fontSize: "9px", color: "rgba(0,255,127,0.7)", letterSpacing: "1px", textTransform: "uppercase" }}>
+            {label}
+        </span>
+        <span style={{ fontFamily: "'Rajdhani', sans-serif", fontSize: "20px", fontWeight: "bold", color: color, lineHeight: 1, marginTop: "4px" }}>
+            {value}
+        </span>
+        {sub && <span style={{ fontFamily: MONO, fontSize: "9px", color: "#6b7280", marginTop: "4px" }}>{sub}</span>}
     </div>
 );
 
-const OrderBookRow = ({ price, size, total, type, maxVol }) => {
-    const width = Math.min((size / maxVol) * 100, 100);
+const OrderBookRow = ({ price, size, type, maxVol }) => {
+    const safePrice = price || 0;
+    const safeSize = size || 0;
+    const barWidth = Math.min((safeSize / maxVol) * 100, 100);
+    const isAsk = type === 'ask';
+    const color = isAsk ? '#f87171' : '#4ade80';
+
     return (
-        <div className="flex justify-between text-xs font-mono py-0.5 relative hover:bg-white/5 cursor-default">
-            <div
-                className={`absolute ${type === 'ask' ? 'right-0 bg-red-500/10' : 'right-0 bg-green-500/10'} h-full transition-all duration-300`}
-                style={{ width: `${width}%` }}
-            />
-            <span className={`relative z-10 w-1/3 text-left pl-2 ${type === 'ask' ? 'text-red-400' : 'text-green-400'}`}>
-                {price.toFixed(2)}
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", fontFamily: MONO, padding: "2px 0", position: "relative" }}>
+            <div style={{
+                position: "absolute", top: 0, bottom: 0, right: 0, width: `${barWidth}%`,
+                background: isAsk ? 'rgba(248, 113, 113, 0.15)' : 'rgba(74, 222, 128, 0.15)',
+                transition: "width 0.2s"
+            }} />
+            <span style={{ position: "relative", zIndex: 1, color: color, fontWeight: "bold", paddingLeft: "4px" }}>
+                {safePrice.toFixed(2)}
             </span>
-            <span className="relative z-10 w-1/3 text-right text-slate-400 pr-2">
-                {size.toFixed(4)}
+            <span style={{ position: "relative", zIndex: 1, color: "#9ca3af", paddingRight: "4px" }}>
+                {safeSize.toFixed(4)}
             </span>
         </div>
     );
 };
 
+// --- MAIN PAGE ---
+
 const ModelTest = () => {
+    // STATE
     const [data, setData] = useState({
-        mid_price: 0,
-        bids: [], asks: [],
-        prediction: { up: 0, neutral: 0, down: 0 },
-        processing_time: 0
+        mid_price: 0, bids: [], asks: [], prediction: { up: 0, neutral: 0, down: 0 }, processing_time: 0
     });
     const [status, setStatus] = useState({ connected: false, active: false });
     const [stats, setStats] = useState({ realized: 0, unrealized: 0, total: 0, position: 0 });
-    const [history, setHistory] = useState({ trades: [], prices: [] });
+    const [history, setHistory] = useState({ trades: [] });
+    const [throttle, setThrottle] = useState(false);
+    const [mode, setMode] = useState("UNKNOWN");
+
+    // REFS
+    const chartRef = useRef(null);
     const bufferRef = useRef([]);
-    // Use crypto.randomUUID for better randomness and no collisions
-    const sessionIdRef = useRef("model-test-session-" + (crypto.randomUUID ? crypto.randomUUID().substring(0, 8) : Math.random().toString(36).substr(2, 9)));
     const wsRef = useRef(null);
+    const sessionIdRef = useRef("model-test-" + Math.random().toString(36).substr(2, 9));
 
-    // Connection & Data Logic
+    // WEBSOCKET LOGIC
     useEffect(() => {
+        const BACKEND_WS = (import.meta.env.VITE_BACKEND_HTTP || "http://localhost:8000").replace(/^http/, "ws") + "/ws";
         const BACKEND_HTTP = import.meta.env.VITE_BACKEND_HTTP || "http://localhost:8000";
-        const BACKEND_WS = import.meta.env.VITE_BACKEND_WS || `${BACKEND_HTTP.replace(/^http/, "ws")}/ws`;
-        const sessionId = sessionIdRef.current;
-        
-        let interval = null;
         let isMounted = true;
-        
-        logger.debug('ModelTest', 'Initializing WebSocket connection to:', `${BACKEND_WS}/${sessionId}`);
+        let interval = null;
 
-        const connectWebSocket = () => {
-            const ws = new WebSocket(`${BACKEND_WS}/${sessionId}`);
+        const connect = () => {
+            if (!isMounted) return;
+            const ws = new WebSocket(`${BACKEND_WS}/${sessionIdRef.current}`);
             wsRef.current = ws;
 
             ws.onopen = () => {
-                logger.info('ModelTest', 'WebSocket connected');
-                if (!isMounted) {
-                    logger.debug('ModelTest', 'Component unmounted, closing WebSocket');
-                    ws.close();
-                    return;
-                }
                 setStatus(s => ({ ...s, connected: true }));
-                fetch(`${BACKEND_HTTP}/replay/${sessionId}/start`, { method: 'POST' })
-                    .then(() => logger.info('ModelTest', 'Replay started'))
-                    .catch(err => logger.error('ModelTest', 'Failed to start replay:', err));
+                fetch(`${BACKEND_HTTP}/replay/${sessionIdRef.current}/start`, { method: 'POST' }).catch(console.error);
+                fetch(`${BACKEND_HTTP}/metrics`).then(r => r.json()).then(d => setMode(d.mode || "UNKNOWN")).catch(console.error);
             };
 
             ws.onmessage = (e) => {
                 if (!isMounted) return;
                 const msg = JSON.parse(e.data);
-                logger.debug('ModelTest', 'Received message type:', msg.type);
-                if (msg.type !== 'history') bufferRef.current.push(msg);
+                if (msg.type === 'snapshot') bufferRef.current.push(msg);
+                else if (msg.type === 'trade_event') setHistory(h => ({ ...h, trades: [msg.data, ...h.trades].slice(0, 50) }));
+                else if (msg.type === 'history' && chartRef.current) chartRef.current.setData(msg.data);
             };
 
-            ws.onclose = (event) => {
-                logger.info('ModelTest', 'WebSocket closed:', event.code, event.reason);
-                if (!isMounted) return;
-                setStatus(s => ({ ...s, connected: false }));
-            };
-            
-            ws.onerror = (err) => {
-                logger.error('ModelTest', 'WebSocket error:', err);
-            };
-
-            return ws;
+            ws.onclose = () => { if (isMounted) { setStatus(s => ({ ...s, connected: false })); setTimeout(connect, 2000); } };
         };
 
-        connectWebSocket();
+        connect();
 
         interval = setInterval(() => {
             if (bufferRef.current.length > 0) {
-                const msgs = [...bufferRef.current];
-                const latest = msgs[msgs.length - 1];
-
-                setData(latest);
-                if (latest.strategy) {
-                    const pnlData = latest.strategy.pnl || {};
-                    setStats({
-                        realized: pnlData.realized || 0,
-                        unrealized: pnlData.unrealized || 0,
-                        total: pnlData.total || 0,
-                        position: pnlData.position || 0
-                    });
-                    setStatus(s => ({ ...s, active: pnlData.is_active || false }));
-                    if (latest.strategy.trade_event) {
-                        const tradeEvent = latest.strategy.trade_event;
-                        logger.debug('ModelTest', 'Trade event received:', tradeEvent);
-                        setHistory(h => ({ ...h, trades: [tradeEvent, ...h.trades].slice(0, 50) }));
-                    }
+                const latest = bufferRef.current[bufferRef.current.length - 1];
+                if (chartRef.current) {
+                    if (throttle) chartRef.current.update(latest);
+                    else bufferRef.current.forEach(pt => chartRef.current.update(pt));
                 }
 
-                setHistory(h => ({
-                    ...h,
-                    prices: [...h.prices, ...msgs.map(m => ({
-                        timestamp: m.timestamp,
-                        mid_price: m.mid_price,
-                        microprice: m.microprice || m.mid_price,
-                        trade_volume: 0
-                    }))].slice(-500) // Keep 500 points
+                // Safe Data Update
+                setData(d => ({
+                    ...d, ...latest,
+                    prediction: latest.prediction || d.prediction || { up: 0, neutral: 0, down: 0 }
                 }));
+
+                if (latest.strategy?.pnl) {
+                    setStats(s => ({
+                        ...s,
+                        realized: latest.strategy.pnl.realized || 0,
+                        unrealized: latest.strategy.pnl.unrealized || 0,
+                        total: latest.strategy.pnl.total || 0,
+                        position: latest.strategy.pnl.position || 0
+                    }));
+                    setStatus(st => ({ ...st, active: latest.strategy.pnl.is_active }));
+                }
                 bufferRef.current = [];
             }
-        }, 50); // High refresh rate 50ms
+        }, 66);
 
-        return () => {
-            console.log('[ModelTest] Cleanup: unmounting component');
-            isMounted = false;
-            if (interval) {
-                clearInterval(interval);
-                console.log('[ModelTest] Cleanup: cleared interval');
-            }
-            if (wsRef.current) {
-                if (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) {
-                    logger.debug('ModelTest', 'Cleanup: closing WebSocket');
-                    wsRef.current.close();
-                }
-                wsRef.current = null;
-            }
-        };
+        return () => { isMounted = false; clearInterval(interval); wsRef.current?.close(); };
     }, []);
 
+    // ACTIONS
     const toggleEngine = async () => {
-        const endpoint = status.active ? '/strategy/stop' : '/strategy/start';
-        await fetch(`${import.meta.env.VITE_BACKEND_HTTP || "http://localhost:8000"}${endpoint}`, { method: 'POST' });
+        const ep = status.active ? '/strategy/stop' : '/strategy/start';
+        await fetch(`${import.meta.env.VITE_BACKEND_HTTP || "http://localhost:8000"}${ep}`, { method: 'POST' });
     };
-
-    const resetStrategy = async () => {
-        const response = await fetch(`${import.meta.env.VITE_BACKEND_HTTP || "http://localhost:8000"}/strategy/reset`, { method: 'POST' });
-        const data = await response.json();
-        // Update local state immediately
+    const reset = async () => {
+        await fetch(`${import.meta.env.VITE_BACKEND_HTTP || "http://localhost:8000"}/strategy/reset`, { method: 'POST' });
         setStats({ realized: 0, unrealized: 0, total: 0, position: 0 });
-        setHistory({ trades: [], prices: history.prices }); // Keep price history, clear trades
-        setStatus(s => ({ ...s, active: false }));
+        setHistory({ trades: [] });
+        chartRef.current?.reset();
     };
 
-    // Calculate trade statistics
-    const tradeStats = React.useMemo(() => {
-        const exits = history.trades.filter(t => t.type === 'EXIT' && t.pnl !== undefined);
-        const wins = exits.filter(t => t.pnl > 0).length;
-        const losses = exits.filter(t => t.pnl < 0).length;
-        const winRate = exits.length > 0 ? (wins / exits.length) * 100 : 0;
-        const avgWin = wins > 0 ? exits.filter(t => t.pnl > 0).reduce((sum, t) => sum + t.pnl, 0) / wins : 0;
-        const avgLoss = losses > 0 ? Math.abs(exits.filter(t => t.pnl < 0).reduce((sum, t) => sum + t.pnl, 0) / losses) : 0;
-        const profitFactor = avgLoss > 0 ? (avgWin * wins) / (avgLoss * losses) : wins > 0 ? 999 : 0;
-        return { wins, losses, winRate, avgWin, avgLoss, profitFactor, totalTrades: exits.length };
-    }, [history.trades]);
+    // HELPERS
+    const pred = data.prediction || { up: 0, neutral: 0, down: 0 };
+    const signal = pred.up > 0.35 && pred.up > pred.down ? "LONG" : (pred.down > 0.35 && pred.down > pred.up ? "SHORT" : "HOLD");
+    const sigColor = signal === "LONG" ? ACCENT : (signal === "SHORT" ? "#ef4444" : "#6b7280");
+    const safeMid = data.mid_price || 0;
+    const safeSpread = ((data.asks?.[0]?.[0] || 0) - (data.bids?.[0]?.[0] || 0));
 
-    // Calculate current signal
-    const pred = data.prediction || { up: 0, neutral: 1, down: 0 };
-    const maxProb = Math.max(pred.up, pred.neutral, pred.down);
-    const signal = maxProb === pred.up && pred.up > 0.3 ? "LONG" : (maxProb === pred.down && pred.down > 0.3 ? "SHORT" : "HOLD");
-    const sigColor = signal === "LONG" ? "text-green-500" : (signal === "SHORT" ? "text-red-500" : "text-slate-500");
+    // STYLES
+    const btnStyle = (active, color) => ({
+        display: "flex", alignItems: "center", gap: "6px",
+        padding: "6px 16px", borderRadius: "2px",
+        border: `1px solid ${active ? color : 'rgba(255,255,255,0.2)'}`,
+        background: active ? `${color}20` : 'rgba(0,0,0,0.4)',
+        color: active ? color : '#9ca3af',
+        fontFamily: ORBITRON, fontSize: "11px", fontWeight: "bold",
+        cursor: "pointer", transition: "all 0.2s"
+    });
 
     return (
         <DashboardLayout>
-            <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', backgroundColor: '#020617', padding: '1rem', gap: '0.5rem', boxSizing: 'border-box' }}>
+            <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", gap: "12px", padding: "16px", boxSizing: "border-box", color: "#e5e7eb" }}>
 
-                {/* Header Bar */}
-                <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '0.5rem', padding: '0.5rem 1rem', flexShrink: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <div style={{ backgroundColor: 'rgba(99, 102, 241, 0.2)', padding: '0.375rem', borderRadius: '0.25rem', color: '#818cf8' }}><Zap size={18} /></div>
-                            <h1 style={{ fontSize: '1.125rem', fontWeight: 'bold', color: 'white', letterSpacing: '-0.025em' }}>DeepLOB <span style={{ color: '#64748b', fontWeight: 'normal' }}>Strategy Engine</span></h1>
-                        </div>
-                        <div style={{ height: '1rem', width: '1px', backgroundColor: '#334155', margin: '0 0.5rem' }} />
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.75rem', fontFamily: 'monospace' }}>
-                            <span style={{ color: status.connected ? '#4ade80' : '#f87171' }}>● {status.connected ? "WS CONNECTED" : "WS DISCONNECTED"}</span>
-                            <span style={{ color: '#64748b' }}>LATENCY: {data.processing_time?.toFixed(1)}ms</span>
-                        </div>
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', position: 'relative', zIndex: 10 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.25rem 0.75rem', borderRadius: '0.25rem', backgroundColor: '#1e293b', border: '1px solid #334155' }}>
-                            <span style={{ height: '0.5rem', width: '0.5rem', borderRadius: '9999px', backgroundColor: status.active ? '#22c55e' : '#64748b', animation: status.active ? 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' : 'none' }} />
-                            <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'white' }}>{status.active ? "TRADING ACTIVE" : "TRADING STOPPED"}</span>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={toggleEngine}
-                            className={`flex items-center gap-2 px-4 py-1.5 rounded text-xs font-bold cursor-pointer transition-all relative z-10 ${
-                                status.active 
-                                ? 'bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20' 
-                                : 'bg-green-500/10 text-green-400 border border-green-500/30 hover:bg-green-500/20'
-                            }`}
-                        >
-                            {status.active ? (
-                                <>
-                                    <Square size={14} fill="currentColor" />
-                                    <span>STOP</span>
-                                </>
-                            ) : (
-                                <>
-                                    <Play size={14} fill="currentColor" />
-                                    <span>START</span>
-                                </>
-                            )}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={resetStrategy}
-                            className="flex items-center gap-2 px-4 py-1.5 rounded text-xs font-bold cursor-pointer transition-all bg-purple-500/10 text-purple-400 border border-purple-500/30 hover:bg-purple-500/20 relative z-10"
-                            title="Reset all PnL and trade history"
-                        >
-                            <span>RESET</span>
-                        </button>
-                    </div>
-                </header>
-
-                {/* Main Grid */}
-                <div style={{ display: 'flex', gap: '1rem', flex: 1, minHeight: 0, width: '100%' }}>
-
-                    {/* Left Panel: Metrics & Order Book (25%) */}
-                    <div style={{ width: '25%', display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: 0 }}>
-                        {/* Metrics Block */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.5rem', flexShrink: 0 }}>
-                            <div className="grid grid-cols-3 gap-2">
-                                <MetricCard label="Realized PnL" value={(stats.realized || 0).toFixed(2)} color="text-green-400" icon={DollarSign} />
-                                <MetricCard label="Unrealized" value={(stats.unrealized || 0).toFixed(2)} color="text-blue-400" icon={TrendingUp} />
-                                <MetricCard label="Total PnL" value={(stats.total || 0).toFixed(2)} color="text-emerald-400" icon={DollarSign} />
+                {/* HEADER */}
+                <GenesisPanel style={{ height: "60px", flexShrink: 0, overflow: "visible" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: "100%", padding: "0 16px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", color: ACCENT }}>
+                                <Zap size={20} fill={ACCENT} />
+                                <h1 style={{ fontFamily: ORBITRON, fontSize: "18px", fontWeight: "bold", letterSpacing: "2px", color: "white", margin: 0 }}>
+                                    DeepLOB <span style={{ color: ACCENT, fontWeight: "normal", opacity: 0.8 }}>ENGINE</span>
+                                </h1>
                             </div>
-                            <div className="grid grid-cols-2 gap-2">
-                                <MetricCard label="Position" value={stats.position || 0} subValue={tradeStats.totalTrades > 0 ? `${tradeStats.wins}W/${tradeStats.losses}L` : 'No trades'} color="text-purple-400" icon={Activity} />
-                                <MetricCard label="Win Rate" value={tradeStats.totalTrades > 0 ? `${tradeStats.winRate.toFixed(1)}%` : '-'} subValue={tradeStats.totalTrades > 0 ? `PF: ${tradeStats.profitFactor.toFixed(2)}` : ''} color="text-cyan-400" icon={BarChart2} />
-                            </div>
-                            <div className="grid grid-cols-2 gap-2">
-                                <MetricCard label="Mid Price" value={(data.mid_price || 0).toFixed(2)} subValue={`Spr: ${((data.asks?.[0]?.[0] || 0) - (data.bids?.[0]?.[0] || 0)).toFixed(2)}`} color="text-orange-400" icon={Server} />
-                                <MetricCard label="Latency" value={`${(data.processing_time || 0).toFixed(1)}ms`} subValue={status.connected ? 'Connected' : 'Disconnected'} color="text-slate-400" icon={Clock} />
+                            <div style={{ width: "1px", height: "24px", background: "rgba(255,255,255,0.1)" }} />
+                            <div style={{
+                                display: "flex", alignItems: "center", gap: "8px", padding: "4px 10px",
+                                border: `1px solid ${mode === 'LIVE' ? ACCENT : '#f97316'}40`,
+                                background: `${mode === 'LIVE' ? ACCENT : '#f97316'}10`,
+                                borderRadius: "2px"
+                            }}>
+                                <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: mode === 'LIVE' ? ACCENT : '#f97316' }} />
+                                <span style={{ fontFamily: ORBITRON, fontSize: "10px", fontWeight: "bold", color: mode === 'LIVE' ? ACCENT : '#f97316' }}>
+                                    {mode === 'LIVE' ? 'LIVE FEED' : 'REPLAY MODE'}
+                                </span>
                             </div>
                         </div>
 
-                        {/* Order Book */}
-                        <div className="flex-1 bg-slate-900 border border-slate-800 rounded-lg p-3 flex flex-col min-h-0">
-                            <div className="text-xs font-bold text-slate-400 uppercase mb-2 flex justify-between">
-                                <span>Order Book</span>
-                                <span>Spread</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "11px", fontFamily: MONO, color: "#6b7280", marginRight: "12px" }}>
+                                <span>LATENCY: {(data.processing_time || 0).toFixed(1)}ms</span>
+                                <span style={{ color: status.connected ? ACCENT : "#ef4444" }}>● {status.connected ? "CNX" : "DIS"}</span>
                             </div>
-                            <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 custom-scrollbar flex flex-col justify-center">
-                                {/* Asks (Reverse) */}
-                                <div className="flex flex-col-reverse justify-end pb-1 border-b border-slate-800/50">
-                                    {(data.asks || []).slice(0, 12).map((ask, i) => (
-                                        <OrderBookRow key={`a${i}`} price={ask[0]} size={ask[1]} type="ask" maxVol={10} />
-                                    ))}
-                                </div>
-                                <div className="text-center py-1 text-xs font-mono text-slate-500 bg-slate-950/30">
-                                    {((data.asks?.[0]?.[0] || 0) - (data.bids?.[0]?.[0] || 0)).toFixed(2)}
-                                </div>
-                                {/* Bids */}
-                                <div className="pt-1">
-                                    {(data.bids || []).slice(0, 12).map((bid, i) => (
-                                        <OrderBookRow key={`b${i}`} price={bid[0]} size={bid[1]} type="bid" maxVol={10} />
-                                    ))}
-                                </div>
-                            </div>
+                            <button onClick={toggleEngine} style={btnStyle(status.active, status.active ? '#ef4444' : ACCENT)}>
+                                {status.active ? <Square size={12} fill="currentColor" /> : <Play size={12} fill="currentColor" />}
+                                {status.active ? "STOP ENGINE" : "START ENGINE"}
+                            </button>
+                            <button onClick={reset} style={{ padding: "6px", border: "1px solid rgba(255,255,255,0.2)", background: "rgba(0,0,0,0.4)", color: "#9ca3af", borderRadius: "2px", cursor: "pointer" }}>
+                                <RefreshCw size={16} />
+                            </button>
+                            <button onClick={() => setThrottle(!throttle)} style={btnStyle(throttle, '#22d3ee')}>
+                                <Activity size={14} /> {throttle ? "HUMAN" : "MACHINE"}
+                            </button>
                         </div>
                     </div>
+                </GenesisPanel>
 
-                    {/* Middle Panel: Chart (50%) */}
-                    <div style={{ width: '50%', backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '0.5rem', padding: '0.25rem', display: 'flex', flexDirection: 'column', position: 'relative' }}>
-                        <div className="absolute top-4 left-4 z-10 bg-slate-900/80 backdrop-blur px-3 py-1 rounded border border-slate-700">
-                            <div className="text-xs text-slate-500 uppercase font-bold">Signal Confidence</div>
-                            <div className="flex items-center gap-4 mt-1">
-                                <div className="flex flex-col">
-                                    <span className="text-[10px] text-green-400">UP</span>
-                                    <span className="text-sm font-mono text-green-300">{(pred.up * 100).toFixed(0)}%</span>
+                {/* MAIN GRID - Using Flexbox because Grid might be tricky without CSS classes */}
+                <div style={{ flex: 1, minHeight: 0, display: "flex", gap: "12px" }}>
+
+                    {/* LEFT COL (25%) */}
+                    <div style={{ width: "25%", display: "flex", flexDirection: "column", gap: "12px", minHeight: 0 }}>
+                        <GenesisPanel title="PERFORMANCE" style={{ flexShrink: 0 }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", padding: "8px" }}>
+                                <MetricBox label="REALIZED" value={(stats.realized || 0).toFixed(2)} color={stats.realized >= 0 ? "#4ade80" : "#f87171"} sub="$ USD" />
+                                <MetricBox label="UNREALIZED" value={(stats.unrealized || 0).toFixed(2)} color={stats.unrealized >= 0 ? "#60a5fa" : "#f87171"} sub="$ USD" />
+                                <MetricBox label="TOTAL PNL" value={(stats.total || 0).toFixed(2)} color={stats.total >= 0 ? ACCENT : "#ef4444"} />
+                                <MetricBox label="POSITION" value={stats.position} color="#facc15" sub="Contracts" />
+                            </div>
+                        </GenesisPanel>
+
+                        <GenesisPanel title="LIVE BOOK" style={{ flex: 1 }} rightHeader={<span style={{ fontFamily: MONO, fontSize: "10px", color: "#6b7280" }}>SPREAD: {safeSpread.toFixed(2)}</span>}>
+                            <div style={{ display: "flex", flexDirection: "column", height: "100%", padding: "0 8px" }}>
+                                <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end", paddingBottom: "4px", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+                                    {(data.asks || []).slice(0, 15).reverse().map((a, i) => <OrderBookRow key={i} price={a[0]} size={a[1]} type="ask" maxVol={5} />)}
                                 </div>
-                                <div className="w-px h-6 bg-slate-700"></div>
-                                <div className="flex flex-col">
-                                    <span className="text-[10px] text-slate-400">NEUTRAL</span>
-                                    <span className="text-sm font-mono text-slate-300">{(pred.neutral * 100).toFixed(0)}%</span>
+                                <div style={{ textAlign: "center", padding: "4px 0", fontFamily: MONO, fontSize: "14px", fontWeight: "bold", color: "white", letterSpacing: "1px" }}>
+                                    {safeMid.toFixed(2)}
                                 </div>
-                                <div className="w-px h-6 bg-slate-700"></div>
-                                <div className="flex flex-col">
-                                    <span className="text-[10px] text-red-400">DOWN</span>
-                                    <span className="text-sm font-mono text-red-300">{(pred.down * 100).toFixed(0)}%</span>
+                                <div style={{ flex: 1, display: "flex", flexDirection: "column", paddingTop: "4px" }}>
+                                    {(data.bids || []).slice(0, 15).map((b, i) => <OrderBookRow key={i} price={b[0]} size={b[1]} type="bid" maxVol={5} />)}
                                 </div>
                             </div>
-                        </div>
-                        <div className="flex-1 w-full h-full rounded overflow-hidden">
-                            <CanvasPriceChart data={history.prices} markers={history.trades} height={600} />
-                        </div>
+                        </GenesisPanel>
                     </div>
 
-                    {/* Right Panel: Trade History & Signal (25%) */}
-                    <div style={{ width: '25%', display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: 0 }}>
-                        {/* Active Signal Box */}
-                        <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 shrink-0 text-center">
-                            <div className="text-xs text-slate-500 uppercase tracking-widest mb-1">Current Signal</div>
-                            <div className={`text-4xl font-black ${sigColor} transition-all`}>{signal}</div>
-                            <div className="flex w-full mt-3 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                                <div className="bg-green-500 transition-all duration-300" style={{ width: `${pred.up * 100}%` }} />
-                                <div className="bg-slate-500 transition-all duration-300" style={{ width: `${pred.neutral * 100}%` }} />
-                                <div className="bg-red-500 transition-all duration-300" style={{ width: `${pred.down * 100}%` }} />
+                    {/* CENTER COL (50%) */}
+                    <div style={{ width: "50%", display: "flex", flexDirection: "column", gap: "12px", minHeight: 0 }}>
+                        <GenesisPanel style={{ flex: 1, position: "relative" }}>
+                            {/* Floating Badge */}
+                            <div style={{ position: "absolute", top: "16px", left: "16px", zIndex: 10, background: "rgba(0,0,0,0.8)", border: "1px solid rgba(255,255,255,0.1)", padding: "8px", borderRadius: "4px" }}>
+                                <div style={{ fontSize: "10px", fontFamily: MONO, color: "#6b7280", marginBottom: "4px" }}>CONFIDENCE</div>
+                                <div style={{ display: "flex", alignItems: "flex-end", gap: "4px", height: "30px" }}>
+                                    <div style={{ width: "10px", background: "#4ade80", height: `${Math.max((pred.up || 0) * 100, 5)}%`, opacity: pred.up }} />
+                                    <div style={{ width: "10px", background: "#6b7280", height: `${Math.max((pred.neutral || 0) * 100, 5)}%`, opacity: pred.neutral }} />
+                                    <div style={{ width: "10px", background: "#f87171", height: `${Math.max((pred.down || 0) * 100, 5)}%`, opacity: pred.down }} />
+                                </div>
                             </div>
-                        </div>
+                            <div style={{ width: "100%", height: "100%" }}>
+                                <TradingViewChart ref={chartRef} />
+                            </div>
+                        </GenesisPanel>
 
-                        {/* Trade Log */}
-                        <div className="flex-1 bg-slate-900 border border-slate-800 rounded-lg flex flex-col min-h-0 overflow-hidden">
-                            <div className="p-3 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center">
-                                <span className="text-xs font-bold text-slate-400 uppercase">Execution Log</span>
-                                <span className="text-[10px] text-slate-500">{history.trades.length} trades</span>
-                            </div>
-                            <div className="overflow-auto custom-scrollbar flex-1 p-0 relative min-h-[300px]">
-                                {history.trades.length === 0 ? (
-                                    <div className="absolute inset-0 flex items-center justify-center text-slate-500 text-sm">
-                                        <div className="text-center py-8">
-                                            <List className="mx-auto mb-2 opacity-30" size={32} />
-                                            <p>No trades yet</p>
-                                            <p className="text-xs text-slate-600 mt-1">Trades will appear here when strategy is active</p>
-                                        </div>
+                        <GenesisPanel style={{ height: "80px", flexShrink: 0 }}>
+                            <div style={{ display: "flex", height: "100%", alignItems: "center" }}>
+                                <div style={{ width: "120px", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", borderRight: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.02)" }}>
+                                    <span style={{ fontSize: "9px", color: "#6b7280", marginBottom: "4px" }}>ANALYSIS</span>
+                                    <span style={{ fontFamily: ORBITRON, fontSize: "24px", fontWeight: "900", color: sigColor }}>{signal}</span>
+                                </div>
+                                <div style={{ flex: 1, padding: "0 16px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", fontFamily: MONO, color: "#9ca3af" }}>
+                                        <span>PROBABILITY DISTRIBUTION</span>
+                                        <span>{(Math.max(pred.up, pred.neutral, pred.down) * 100).toFixed(1)}% CONFIDENCE</span>
                                     </div>
-                                ) : (
-                                    <table className="w-full text-xs text-left text-slate-400">
-                                        <thead className="bg-slate-950 font-medium text-slate-500 sticky top-0">
-                                            <tr>
-                                                <th className="px-2 py-2">Time</th>
-                                                <th className="px-2 py-2">Type</th>
-                                                <th className="px-2 py-2">Side</th>
-                                                <th className="px-2 py-2 text-right">Price</th>
-                                                <th className="px-2 py-2 text-right">Size</th>
-                                                <th className="px-2 py-2 text-right">PnL</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-800/50">
-                                            {history.trades.map((t, i) => {
-                                                const isEntry = t.type === 'ENTRY';
-                                                const isExit = t.type === 'EXIT';
-                                                const pnlClass = isEntry ? 'text-slate-600' : 
-                                                    (t.pnl > 0 ? 'text-green-400' : (t.pnl < 0 ? 'text-red-400' : 'text-slate-600'));
-                                                return (
-                                                    <tr key={i} className={`hover:bg-slate-800/30 font-mono ${isExit ? 'bg-slate-800/20' : ''}`}>
-                                                        <td className="px-2 py-1.5 text-slate-500 text-[10px]">{new Date(t.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</td>
-                                                        <td className="px-2 py-1.5">
-                                                            <span className={`text-[9px] px-1.5 py-0.5 rounded ${isEntry ? 'bg-blue-500/20 text-blue-300' : 'bg-purple-500/20 text-purple-300'}`}>
-                                                                {t.type || 'TRADE'}
-                                                            </span>
-                                                        </td>
-                                                        <td className={`px-2 py-1.5 font-bold ${t.side === 'BUY' ? 'text-green-400' : 'text-red-400'}`}>{t.side}</td>
-                                                        <td className="px-2 py-1.5 text-right">{(t.price || 0).toFixed(2)}</td>
-                                                        <td className="px-2 py-1.5 text-right text-slate-400">{(t.size || 0).toFixed(2)}</td>
-                                                        <td className={`px-2 py-1.5 text-right font-semibold ${pnlClass}`}>
-                                                            {isEntry ? (
-                                                                <span className="text-[10px] text-slate-500" title={`Confidence: ${((t.confidence || 0) * 100).toFixed(0)}%`}>
-                                                                    {((t.confidence || 0) * 100).toFixed(0)}%
-                                                                </span>
-                                                            ) : (
-                                                                (t.pnl !== undefined && t.pnl !== null) ? t.pnl.toFixed(2) : '0.00'
-                                                            )}
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
-                                )}
+                                    <div style={{ height: "8px", borderRadius: "4px", overflow: "hidden", display: "flex", background: "#1f2937" }}>
+                                        <div style={{ background: "#4ade80", width: `${(pred.up || 0) * 100}%`, transition: "all 0.3s" }} />
+                                        <div style={{ background: "#6b7280", width: `${(pred.neutral || 0) * 100}%`, transition: "all 0.3s" }} />
+                                        <div style={{ background: "#f87171", width: `${(pred.down || 0) * 100}%`, transition: "all 0.3s" }} />
+                                    </div>
+                                </div>
                             </div>
-                        </div>
+                        </GenesisPanel>
                     </div>
 
+                    {/* RIGHT COL (25%) */}
+                    <div style={{ width: "25%", display: "flex", flexDirection: "column", minHeight: 0 }}>
+                        <GenesisPanel title="EXECUTION LOG" style={{ flex: 1 }}>
+                            <div style={{ flex: 1, overflowY: "auto", fontFamily: MONO, fontSize: "10px" }}>
+                                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                                    <thead style={{ position: "sticky", top: 0, background: "#050a05", color: "#6b7280", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+                                        <tr>
+                                            <th style={{ padding: "8px", textAlign: "left" }}>TIME</th>
+                                            <th style={{ padding: "8px", textAlign: "left" }}>SIDE</th>
+                                            <th style={{ padding: "8px", textAlign: "right" }}>PX</th>
+                                            <th style={{ padding: "8px", textAlign: "right" }}>PNL</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {(history.trades || []).map((t, i) => (
+                                            <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                                                <td style={{ padding: "6px 8px", color: "#9ca3af" }}>{new Date(t.timestamp).toLocaleTimeString([], { hour12: false, second: '2-digit', minute: '2-digit' })}</td>
+                                                <td style={{ padding: "6px 8px", fontWeight: "bold", color: t.side === 'BUY' ? "#4ade80" : "#f87171" }}>{t.side}</td>
+                                                <td style={{ padding: "6px 8px", textAlign: "right" }}>{(t.price || 0).toFixed(2)}</td>
+                                                <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: "bold", color: t.pnl > 0 ? "#4ade80" : t.pnl < 0 ? "#f87171" : "#6b7280" }}>
+                                                    {t.pnl ? t.pnl.toFixed(2) : '-'}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {(history.trades || []).length === 0 && (
+                                            <tr><td colSpan={4} style={{ padding: "32px", textAlign: "center", color: "#4b5563" }}>No trades executed</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </GenesisPanel>
+                    </div>
                 </div>
             </div>
         </DashboardLayout>

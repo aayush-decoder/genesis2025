@@ -1,7 +1,7 @@
-import { useState } from "react";
-import { Menu, ChevronLeft, ChevronRight, Maximize2, X } from 'lucide-react';
+import React, { useState } from "react";
+import { Menu, ChevronLeft, ChevronRight, Maximize2, X, Activity, Radio, Play } from 'lucide-react';
 import ControlsBar from "../components/ControlsBar";
-import CanvasPriceChart from "../components/CanvasPriceChart";
+import { TradingViewChart } from "../components/TradingViewChart";
 import CanvasHeatmap from "../components/CanvasHeatmap";
 import FeaturePanel from "../components/FeaturePanel";
 import SnapshotInspector from "../components/SnapshotInspector";
@@ -16,7 +16,55 @@ import TradeFeed from "../components/TradeFeed";
 import VPINChart from "../components/VPINChart";
 import AdvancedAnomalyFeed from "../components/AdvancedAnomalyFeed";
 
-import React from 'react';
+// --- GENESIS DESIGN SYSTEM ---
+const ORBITRON = "'Orbitron', monospace";
+const MONO = "monospace";
+const ACCENT = "#00ff7f";
+const GLASS_BG = "rgba(0, 10, 0, 0.7)";
+const BORDER = "1px solid rgba(0, 255, 127, 0.2)";
+
+const GenesisPanel = ({ children, style = {}, title, rightHeader, noPadding = false }) => {
+  return (
+    <div style={{
+      background: GLASS_BG,
+      border: BORDER,
+      backdropFilter: "blur(10px)",
+      position: "relative",
+      display: "flex",
+      flexDirection: "column",
+      overflow: "hidden",
+      ...style
+    }}>
+      {/* Top Laser */}
+      <div style={{
+        position: "absolute", top: 0, left: 0, right: 0, height: "2px",
+        background: `linear-gradient(90deg, transparent, ${ACCENT}, transparent)`,
+        opacity: 0.5, zIndex: 10
+      }} />
+
+      {/* Header */}
+      {(title || rightHeader) && (
+        <div style={{
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          padding: "8px 12px", borderBottom: "1px solid rgba(0,255,127,0.1)",
+          background: "rgba(0,0,0,0.3)", flexShrink: 0
+        }}>
+          {title && (
+            <span style={{ fontFamily: ORBITRON, fontSize: "11px", fontWeight: "bold", color: ACCENT, letterSpacing: "1px", textTransform: "uppercase" }}>
+              {title}
+            </span>
+          )}
+          {rightHeader}
+        </div>
+      )}
+
+      {/* Content */}
+      <div style={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative", padding: noPadding ? 0 : "8px" }}>
+        {children}
+      </div>
+    </div>
+  );
+};
 
 const DashboardLayout = React.memo(function DashboardLayout({
   data,
@@ -39,731 +87,175 @@ const DashboardLayout = React.memo(function DashboardLayout({
   const activeSnapshot = hoveredSnapshot || latestSnapshot;
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  // Feature definitions
+  // --- FEATURES ---
   const features = [
     {
-      id: "obi",
-      title: "ORDER BOOK IMBALANCE",
-      component: (
-        <FeaturePanel
-          data={data}
-          dataKey="obi"
-          color="#38bdf8"
-          threshold={0.5}
-        />
-      ),
+      id: "obi", title: "ORDER BOOK IMBALANCE",
+      component: <FeaturePanel data={data} dataKey="obi" color="#38bdf8" threshold={0.5} />,
       modalComponent: (
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "16px",
-            height: "100%",
-          }}
-        >
-          <div style={{ flex: 1, overflow: "hidden" }}>
-            <FeaturePanel
-              title="Order Book Imbalance"
-              data={data}
-              dataKey="obi"
-              color="#38bdf8"
-              threshold={0.5}
-            />
-          </div>
-          <div style={{ flex: 1, overflow: "hidden" }}>
-            <FeaturePanel
-              title="Spread"
-              data={data}
-              dataKey="spread"
-              color="#f472b6"
-              isSpread
-            />
-          </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px", height: "100%" }}>
+          <div style={{ flex: 1, overflow: "hidden" }}><FeaturePanel title="Order Book Imbalance" data={data} dataKey="obi" color="#38bdf8" threshold={0.5} /></div>
+          <div style={{ flex: 1, overflow: "hidden" }}><FeaturePanel title="Spread" data={data} dataKey="spread" color="#f472b6" isSpread /></div>
         </div>
       ),
     },
     {
-      id: "spread",
-      title: "SPREAD",
-      component: (
-        <FeaturePanel data={data} dataKey="spread" color="#f472b6" isSpread />
-      ),
+      id: "spread", title: "SPREAD MONITOR",
+      component: <FeaturePanel data={data} dataKey="spread" color="#f472b6" isSpread />,
       modalComponent: (
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "16px",
-            height: "100%",
-          }}
-        >
-          <div style={{ flex: 1, overflow: "hidden" }}>
-            <FeaturePanel
-              title="Spread"
-              data={data}
-              dataKey="spread"
-              color="#f472b6"
-              isSpread
-            />
-          </div>
-          <div style={{ flex: 1, overflow: "hidden" }}>
-            <FeaturePanel
-              title="Order Book Imbalance"
-              data={data}
-              dataKey="obi"
-              color="#38bdf8"
-              threshold={0.5}
-            />
-          </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px", height: "100%" }}>
+          <div style={{ flex: 1, overflow: "hidden" }}><FeaturePanel title="Spread" data={data} dataKey="spread" color="#f472b6" isSpread /></div>
+          <div style={{ flex: 1, overflow: "hidden" }}><FeaturePanel title="Order Book Imsbalance" data={data} dataKey="obi" color="#38bdf8" threshold={0.5} /></div>
         </div>
       ),
     },
     {
-      id: "liquidity",
-      title: "LIQUIDITY GAP MONITOR",
+      id: "liquidity", title: "LIQUIDITY GAPS",
       component: <LiquidityGapMonitor snapshot={latestSnapshot} data={data} />,
       modalComponent: (
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "16px",
-            height: "100%",
-          }}
-        >
-          <div style={{ flex: 1, overflow: "hidden" }}>
-            <LiquidityGapMonitor snapshot={latestSnapshot} data={data} />
-          </div>
-          <div
-            style={{
-              flex: 1,
-              overflow: "hidden",
-              transform: "scale(0.9)",
-              transformOrigin: "top left",
-            }}
-          >
-            <LiquidityGapChart data={data} />
-          </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px", height: "100%" }}>
+          <div style={{ flex: 1, overflow: "hidden" }}><LiquidityGapMonitor snapshot={latestSnapshot} data={data} /></div>
+          <div style={{ flex: 1, overflow: "hidden" }}><LiquidityGapChart data={data} /></div>
         </div>
       ),
     },
     {
-      id: "spoofing",
-      title: "SPOOFING DETECTOR",
+      id: "spoofing", title: "SPOOFING DETECTION",
       component: <SpoofingDetector snapshot={latestSnapshot} data={data} />,
       modalComponent: (
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "16px",
-            height: "100%",
-          }}
-        >
-          <div style={{ flex: 1, overflow: "hidden" }}>
-            <SpoofingDetector snapshot={latestSnapshot} data={data} />
-          </div>
-          <div
-            style={{
-              flex: 1,
-              overflow: "hidden",
-            }}
-          >
-            <SpoofingRiskChart data={data} />
-          </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px", height: "100%" }}>
+          <div style={{ flex: 1, overflow: "hidden" }}><SpoofingDetector snapshot={latestSnapshot} data={data} /></div>
+          <div style={{ flex: 1, overflow: "hidden" }}><SpoofingRiskChart data={data} /></div>
         </div>
       ),
     },
-    {
-      id: "trades",
-      title: "TRADE FEED",
-      component: <TradeFeed data={data} />,
-      modalComponent: <TradeFeed data={data} />,
-    },
-    {
-      id: "vpin",
-      title: "V-PIN MONITOR",
-      component: <VPINChart data={data} />, // Small view (default)
-      modalComponent: <VPINChart data={data} isModal={true} />, // Modal view (detailed),
-    },
-    {
-      id: "anomalies",
-      title: "ADVANCED ANOMALIES",
-      component: <AdvancedAnomalyFeed data={data} />,
-      modalComponent: <AdvancedAnomalyFeed data={data} isModal={true} />,
-    },
+    { id: "trades", title: "MARKET TRADES", component: <TradeFeed data={data} /> },
+    { id: "vpin", title: "VPIN TOXICITY", component: <VPINChart data={data} /> },
+    { id: "anomalies", title: "ADVANCED ANOMALIES", component: <AdvancedAnomalyFeed data={data} /> },
   ];
 
-  const handlePrevFeature = () => {
-    setCurrentFeatureIndex((prev) =>
-      prev === 0 ? features.length - 1 : prev - 1
-    );
-  };
-
-  const handleNextFeature = () => {
-    setCurrentFeatureIndex((prev) =>
-      prev === features.length - 1 ? 0 : prev + 1
-    );
-  };
-
-  const handleOpenModal = () => {
-    setIsModalOpen(true);
-  };
-
-  const handleCloseModal = () => {
-    setIsModalOpen(false);
-  };
-
+  const handlePrevFeature = () => setCurrentFeatureIndex((prev) => prev === 0 ? features.length - 1 : prev - 1);
+  const handleNextFeature = () => setCurrentFeatureIndex((prev) => prev === features.length - 1 ? 0 : prev + 1);
   const currentFeature = features[currentFeatureIndex];
-
-  // Custom container styles based on children/props
-  const containerStyle = children ? {
-    width: "100vw",
-    height: "100vh",
-    overflow: "hidden",
-    backgroundColor: "#0a0f0a",
-    display: "flex",
-    flexDirection: "column",
-    padding: 0,
-    margin: 0,
-    boxSizing: "border-box",
-  } : {
-    width: "100vw",
-    height: "100vh",
-    overflow: "hidden",
-    backgroundColor: "#0a0f0a",
-    display: "flex",
-    padding: "16px 96px",
-    gap: "12px",
-    boxSizing: "border-box",
-    alignItems: "center",
-  };
+  const btnStyle = { padding: "4px 8px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: ACCENT, cursor: "pointer", fontFamily: ORBITRON, fontSize: "10px" };
 
   return (
     <>
-      {/* Sidebar Toggle Button */}
+      {/* Sidebar Toggle */}
       <button
         onClick={() => setIsSidebarOpen(true)}
         style={{
-          position: "fixed",
-          top: "50%",
-          left: "0",
-          transform: "translateY(-50%)",
-          padding: "16px 8px",
-          background: "rgba(0, 255, 127, 0.1)",
-          border: "1px solid rgba(0, 255, 127, 0.3)",
-          borderLeft: "none",
-          borderTopRightRadius: "0",
-          borderBottomRightRadius: "0",
-          color: "#00ff7f",
-          cursor: "pointer",
-          fontSize: "18px",
-          zIndex: 998,
-          transition: "all 0.3s",
-          fontFamily: "'Orbitron', monospace",
-          backdropFilter: "blur(8px)",
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = "rgba(0, 255, 127, 0.2)";
-          e.currentTarget.style.boxShadow = "0 0 15px rgba(0, 255, 127, 0.3)";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = "rgba(0, 255, 127, 0.1)";
-          e.currentTarget.style.boxShadow = "none";
+          position: "fixed", top: "50%", left: "0", transform: "translateY(-50%)",
+          padding: "12px 6px", background: `${ACCENT}10`, border: `1px solid ${ACCENT}40`, borderLeft: "none",
+          color: ACCENT, cursor: "pointer", zIndex: 998, backdropFilter: "blur(4px)"
         }}
       >
-        <Menu size={18} />
+        <Menu size={16} />
       </button>
-
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} activePage="dashboard" />
 
-      <div style={containerStyle}>
-        {children ? (
-          children
-        ) : (
+      {/* Main Container */}
+      <div style={{
+        width: "100vw", height: "100vh", overflow: "hidden", background: "#050a05",
+        display: "flex", padding: children ? 0 : "16px 24px 16px 48px", boxSizing: "border-box", gap: "12px"
+      }}>
+        {children ? children : (
           <>
-            {/* Left Column */}
-            <div
-              style={{
-                flex: "1",
-                display: "flex",
-                flexDirection: "column",
-                gap: "12px",
-                minWidth: 0,
-              }}
-            >
-              {/* Price Action */}
-              <div
-                style={{
-                  height: "145px",
-                  background: "rgba(0, 20, 0, 0.4)",
-                  border: "1px solid rgba(0, 255, 127, 0.2)",
-                  borderRadius: "0",
-                  overflow: "hidden",
-                  padding: "6px",
-                  backdropFilter: "blur(8px)",
-                  position: "relative",
-                }}
-              >
-                <div
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: "2px",
-                    background: "linear-gradient(90deg, transparent, #00ff7f, transparent)",
-                    opacity: 0.3,
-                  }}
-                />
-                <div
-                  style={{
-                    width: "125%",
-                    transform: "scale(0.8)",
-                    transformOrigin: "top left",
-                  }}
-                >
-                  <CanvasPriceChart data={data} height={150} scale={0.8} />
-                </div>
-              </div>
+            {/* LEFT COLUMN (Charts & Analytics) */}
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "12px", minWidth: 0 }}>
 
-              {/* Market Depth */}
-              <div
-                style={{
-                  height: "145px",
-                  background: "rgba(0, 20, 0, 0.4)",
-                  border: "1px solid rgba(0, 255, 127, 0.2)",
-                  borderRadius: "0",
-                  overflow: "hidden",
-                  padding: "6px",
-                  backdropFilter: "blur(8px)",
-                  position: "relative",
-                }}
-              >
-                <div
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: "2px",
-                    background: "linear-gradient(90deg, transparent, #00ff7f, transparent)",
-                    opacity: 0.3,
-                  }}
-                />
-                <div
-                  style={{
-                    height: "calc(100% - 12px)",
-                    transform: "scale(0.8)",
-                    transformOrigin: "top left",
-                    width: "125%",
-                  }}
-                >
-                  <CanvasHeatmap
-                    data={data}
-                    height={150}
-                    onHover={setHoveredSnapshot}
-                    scale={0.8}
-                  />
+              {/* TOP: Price Action (40%) */}
+              <GenesisPanel title="TOKEN PRICE ACTION" style={{ flex: "0 0 32vh" }} noPadding>
+                <div style={{ width: "100%", height: "100%" }}>
+                  <TradingViewChart data={data} />
                 </div>
-              </div>
+              </GenesisPanel>
 
-              {/* Active Signals */}
-              <div
-                style={{
-                  height: "116px",
-                  background: "rgba(0, 20, 0, 0.4)",
-                  border: "1px solid rgba(0, 255, 127, 0.2)",
-                  borderRadius: "0",
-                  overflow: "hidden",
-                  padding: "6px",
-                  fontSize: "0.75rem",
-                  backdropFilter: "blur(8px)",
-                  position: "relative",
-                }}
-              >
-                <div
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: "2px",
-                    background: "linear-gradient(90deg, transparent, #00ff7f, transparent)",
-                    opacity: 0.3,
-                  }}
-                />
-                <div
-                  style={{
-                    transform: "scale(0.8)",
-                    transformOrigin: "top left",
-                    width: "125%",
-                    height: "125%",
-                  }}
-                >
-                  <SignalMonitor snapshot={latestSnapshot} />
-                </div>
-              </div>
+              {/* MIDDLE: Heatmap/Depth (25%) */}
+              <GenesisPanel title="MARKET DEPTH HEATMAP" style={{ flex: "0 0 22vh" }} noPadding>
+                <CanvasHeatmap data={data} height={180} onHover={setHoveredSnapshot} scale={1} />
+              </GenesisPanel>
 
-              {/* Features/Anomalies */}
-              <div
-                style={{
-                  height: "273px",
-                  background: "rgba(0, 20, 0, 0.4)",
-                  border: "1px solid rgba(0, 255, 127, 0.2)",
-                  borderRadius: "0",
-                  overflow: "hidden",
-                  minHeight: 0,
-                  display: "flex",
-                  flexDirection: "column",
-                  backdropFilter: "blur(8px)",
-                  position: "relative",
-                }}
-              >
-                <div
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: "2px",
-                    background: "linear-gradient(90deg, transparent, #00ff7f, transparent)",
-                    opacity: 0.3,
-                  }}
-                />
-                <div
-                  style={{
-                    padding: "10px",
-                    borderBottom: "1px solid rgba(0, 255, 127, 0.2)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    flexShrink: 0,
-                  }}
-                >
-                  <h3
-                    style={{
-                      margin: 0,
-                      fontSize: "13px",
-                      fontWeight: "700",
-                      fontFamily: "'Orbitron', monospace",
-                      color: "#00ff7f",
-                      textTransform: "uppercase",
-                      letterSpacing: "1px",
-                      textShadow: "0 0 10px rgba(0, 255, 127, 0.3)",
-                    }}
-                  >
-                    {currentFeature.title}
-                  </h3>
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "6px",
-                    }}
-                  >
-                    <button
-                      onClick={handlePrevFeature}
-                      style={{
-                        padding: "3px 10px",
-                        background: "rgba(0, 255, 127, 0.1)",
-                        border: "1px solid rgba(0, 255, 127, 0.3)",
-                        borderRadius: "0",
-                        color: "#00ff7f",
-                        cursor: "pointer",
-                        fontSize: "12px",
-                        transition: "all 0.3s",
-                        fontFamily: "'Orbitron', monospace",
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = "rgba(0, 255, 127, 0.2)";
-                        e.currentTarget.style.boxShadow = "0 0 10px rgba(0, 255, 127, 0.3)";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = "rgba(0, 255, 127, 0.1)";
-                        e.currentTarget.style.boxShadow = "none";
-                      }}
-                    >
-                      <ChevronLeft size={12} />
-                    </button>
-                    <button
-                      onClick={handleNextFeature}
-                      style={{
-                        padding: "3px 10px",
-                        background: "rgba(0, 255, 127, 0.1)",
-                        border: "1px solid rgba(0, 255, 127, 0.3)",
-                        borderRadius: "0",
-                        color: "#00ff7f",
-                        cursor: "pointer",
-                        fontSize: "12px",
-                        transition: "all 0.3s",
-                        fontFamily: "'Orbitron', monospace",
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = "rgba(0, 255, 127, 0.2)";
-                        e.currentTarget.style.boxShadow = "0 0 10px rgba(0, 255, 127, 0.3)";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = "rgba(0, 255, 127, 0.1)";
-                        e.currentTarget.style.boxShadow = "none";
-                      }}
-                    >
-                      <ChevronRight size={12} />
-                    </button>
-                    <button
-                      onClick={handleOpenModal}
-                      style={{
-                        padding: "3px 10px",
-                        background: "rgba(0, 255, 127, 0.1)",
-                        border: "1px solid rgba(0, 255, 127, 0.3)",
-                        borderRadius: "0",
-                        color: "#00ff7f",
-                        cursor: "pointer",
-                        fontSize: "11px",
-                        transition: "all 0.3s",
-                        fontFamily: "'Orbitron', monospace",
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = "rgba(0, 255, 127, 0.2)";
-                        e.currentTarget.style.boxShadow = "0 0 10px rgba(0, 255, 127, 0.3)";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = "rgba(0, 255, 127, 0.1)";
-                        e.currentTarget.style.boxShadow = "none";
-                      }}
-                    >
-                      <Maximize2 size={11} />
-                    </button>
+              {/* BOTTOM SPLIT: Signals & Features (Remaining) */}
+              <div style={{ flex: 1, display: "flex", gap: "12px", minHeight: 0 }}>
+                {/* Signal Monitor */}
+                <GenesisPanel title="ACTIVE SIGNALS" style={{ width: "35vh" }} noPadding>
+                  <div style={{ width: "100%", height: "100%", transform: "scale(0.9)", transformOrigin: "top left" }}>
+                    <SignalMonitor snapshot={latestSnapshot} />
                   </div>
-                </div>
-                <div
-                  style={{
-                    flex: 1,
-                    overflow: "hidden",
-                    padding: "10px",
-                    minHeight: 0,
-                    display: "flex",
-                    alignItems: "center",
-                    // justifyContent: "center",
-                  }}
+                </GenesisPanel>
+
+                {/* Feature Carousel */}
+                <GenesisPanel
+                  title={currentFeature.title}
+                  style={{ flex: 1 }}
+                  rightHeader={
+                    <div style={{ display: "flex", gap: "4px" }}>
+                      <button onClick={handlePrevFeature} style={btnStyle}><ChevronLeft size={10} /></button>
+                      <button onClick={handleNextFeature} style={btnStyle}><ChevronRight size={10} /></button>
+                      <button onClick={() => setIsModalOpen(true)} style={btnStyle}><Maximize2 size={10} /></button>
+                    </div>
+                  }
                 >
-                  <div style={{ width: "100%" }}>{currentFeature.component}</div>
-                </div>
+                  <div style={{ width: "100%", height: "100%", position: "relative" }}>
+                    {currentFeature.component}
+                  </div>
+                </GenesisPanel>
               </div>
             </div>
 
-            {/* Right Column */}
-            <div
-              style={{
-                width: "380px",
-                display: "flex",
-                flexDirection: "column",
-                gap: "12px",
-              }}
-            >
-              {/* Control Bar */}
-              <div
-                style={{
-                  flexShrink: 0,
-                }}
-              >
+            {/* RIGHT COLUMN (Controls & Level 2) */}
+            <div style={{ width: "360px", display: "flex", flexDirection: "column", gap: "12px", flexShrink: 0 }}>
+              {/* Controls */}
+              <GenesisPanel style={{ flexShrink: 0 }}>
                 <ControlsBar
-                  onPlay={onPlay}
-                  onPause={onPause}
-                  onResume={onResume}
-                  onStop={onStop}
-                  onSpeed={onSpeed}
-                  onGoBack={onGoBack}
-                  isPlaying={replayState === "PLAYING"}
-                  isPaused={replayState === "PAUSED"}
-                  currentSpeed={currentSpeed}
-                  currentTimestamp={latestSnapshot?.timestamp}
-                  currentMode={currentMode}
-                  showToast={showToast}
-                  data={data}
+                  onPlay={onPlay} onPause={onPause} onResume={onResume} onStop={onStop}
+                  onSpeed={onSpeed} onGoBack={onGoBack}
+                  isPlaying={replayState === "PLAYING"} isPaused={replayState === "PAUSED"}
+                  currentSpeed={currentSpeed} currentTimestamp={latestSnapshot?.timestamp}
+                  currentMode={currentMode} showToast={showToast} data={data}
                 />
-              </div>
+              </GenesisPanel>
 
               {/* Snapshot Inspector */}
-              <div
-                style={{
-                  height: "193px",
-                  background: "rgba(0, 20, 0, 0.4)",
-                  border: "1px solid rgba(0, 255, 127, 0.2)",
-                  borderRadius: "0",
-                  overflow: "hidden",
-                  padding: "8px",
-                  fontSize: "0.8rem",
-                  backdropFilter: "blur(8px)",
-                  position: "relative",
-                }}
-              >
-                <div
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: "2px",
-                    background: "linear-gradient(90deg, transparent, #00ff7f, transparent)",
-                    opacity: 0.3,
-                  }}
-                />
-                <div
-                  style={{
-                    transform: "scale(0.80)",
-                    transformOrigin: "top left",
-                    width: "117.65%",
-                    height: "117.65%",
-                  }}
-                >
+              <GenesisPanel title="SNAPSHOT INSPECTOR" style={{ height: "200px", flexShrink: 0 }}>
+                <div style={{ fontSize: "11px", height: "100%", overflow: "auto" }}>
                   <SnapshotInspector snapshot={activeSnapshot} />
                 </div>
-              </div>
+              </GenesisPanel>
 
               {/* Price Ladder */}
-              <div
-                style={{
-                  height: "450px",
-                  background: "rgba(0, 20, 0, 0.4)",
-                  border: "1px solid rgba(0, 255, 127, 0.2)",
-                  borderRadius: "0",
-                  overflow: "hidden",
-                  minHeight: 0,
-                  padding: "6px",
-                  fontSize: "0.65rem",
-                  backdropFilter: "blur(8px)",
-                  position: "relative",
-                }}
-              >
-                <div
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: "2px",
-                    background: "linear-gradient(90deg, transparent, #00ff7f, transparent)",
-                    opacity: 0.3,
-                  }}
-                />
-                <div
-                  style={{
-                    transform: "scale(0.695)",
-                    transformOrigin: "top left",
-                    width: "117.65%",
-                    height: "117.65%",
-                  }}
-                >
+              <GenesisPanel title="PRICE LADDER" style={{ flex: 1 }} noPadding>
+                <div style={{ width: "100%", height: "100%", overflow: "hidden" }}>
                   <PriceLadder snapshot={activeSnapshot} />
                 </div>
-              </div>
+              </GenesisPanel>
             </div>
-
-            {/* Modal */}
-            {isModalOpen && (
-              <div
-                style={{
-                  position: "fixed",
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  backgroundColor: "rgba(0, 0, 0, 0.8)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  zIndex: 1000,
-                  padding: "40px",
-                }}
-                onClick={handleCloseModal}
-              >
-                <div
-                  style={{
-                    background: "rgba(0, 20, 0, 0.9)",
-                    borderRadius: "0",
-                    border: "2px solid rgba(0, 255, 127, 0.4)",
-                    width: "90%",
-                    height: "90%",
-                    display: "flex",
-                    flexDirection: "column",
-                    overflow: "hidden",
-                    backdropFilter: "blur(12px)",
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {/* Modal Header */}
-                  <div
-                    style={{
-                      padding: "16px 20px",
-                      borderBottom: "1px solid rgba(0, 255, 127, 0.2)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      flexShrink: 0,
-                    }}
-                  >
-                    <h2
-                      style={{
-                        margin: 0,
-                        fontSize: "18px",
-                        fontWeight: "700",
-                        fontFamily: "'Orbitron', monospace",
-                        color: "#00ff7f",
-                        textTransform: "uppercase",
-                        letterSpacing: "1px",
-                        textShadow: "0 0 10px rgba(0, 255, 127, 0.3)",
-                      }}
-                    >
-                      {currentFeature.title} - Detailed View
-                    </h2>
-                    <button
-                      onClick={handleCloseModal}
-                      style={{
-                        padding: "6px 12px",
-                        background: "rgba(255, 50, 50, 0.2)",
-                        border: "1px solid #ff3232",
-                        borderRadius: "0",
-                        color: "#ff3232",
-                        cursor: "pointer",
-                        fontSize: "14px",
-                        fontWeight: "700",
-                        fontFamily: "'Orbitron', monospace",
-                        transition: "all 0.3s",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "6px",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.5px",
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = "rgba(255, 50, 50, 0.3)";
-                        e.currentTarget.style.boxShadow = "0 0 15px rgba(255, 50, 50, 0.4)";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = "rgba(255, 50, 50, 0.2)";
-                        e.currentTarget.style.boxShadow = "none";
-                      }}
-                    >
-                      <X size={14} /> Close
-                    </button>
-                  </div>
-
-                  {/* Modal Content */}
-                  <div
-                    style={{
-                      flex: 1,
-                      overflow: "hidden",
-                      padding: "20px",
-                    }}
-                  >
-                    {currentFeature.modalComponent}
-                  </div>
-                </div>
-              </div>
-            )}
           </>
         )}
       </div>
+
+      {/* Modal */}
+      {isModalOpen && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.8)", backdropFilter: "blur(5px)",
+          display: "flex", alignItems: "center", justifyContent: "center", padding: "40px"
+        }} onClick={() => setIsModalOpen(false)}>
+          <div style={{ width: "90%", height: "90%", onClick: e => e.stopPropagation() }}>
+            <GenesisPanel
+              title={`${currentFeature.title} - DETAIL`}
+              style={{ height: "100%" }}
+              rightHeader={
+                <button onClick={() => setIsModalOpen(false)} style={{ color: "#ef4444", display: "flex", alignItems: "center", gap: "4px", background: "none", border: "none", cursor: "pointer", fontFamily: ORBITRON }}>
+                  <X size={14} /> CLOSE
+                </button>
+              }
+            >
+              {currentFeature.modalComponent || currentFeature.component}
+            </GenesisPanel>
+          </div>
+        </div>
+      )}
     </>
   );
 });
