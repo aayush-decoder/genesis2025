@@ -12,6 +12,19 @@ A professional-grade high-frequency trading (HFT) market surveillance platform f
 
 ---
 
+The frontend is currently live at **[trading-hub.live](https://trading-hub.live)**.
+
+> The backend is in the process of being deployed on **AWS**.  
+You can see our planned cloud architecture and deployment details here: [Cloud Deployment Plan](#%EF%B8%8F-cloud-deployment)
+
+> To get a quick overview of the system in action, watch the short demo video:  
+ [Project Demo](#-project-demo)
+>
+> For a deeper, technically detailed proof of work and implementation details, refer to the documentation:  
+[Complete Proof of Work](docs/Complete_ProofOfWork.md)
+
+---
+
 ## 🚀 Key Features
 
 ### 📊 Real-Time Market Data Processing
