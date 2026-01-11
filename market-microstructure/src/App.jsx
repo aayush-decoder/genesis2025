@@ -16,19 +16,16 @@ function App() {
           <Routes>
             {/* Public Routes */}
             <Route path="/auth" element={<Auth />} />
-
-            {/* Protected Routes */}
-            <Route
-              path="/"
+            <Route 
+              path="/" 
               element={
-                <ProtectedRoute>
-                  <ErrorBoundary fallbackMessage="Error loading Home page.">
-                    <Home />
-                  </ErrorBoundary>
-                </ProtectedRoute>
-              }
+                <ErrorBoundary fallbackMessage="Error loading Home page.">
+                  <Home />
+                </ErrorBoundary>
+              } 
             />
 
+            {/* Protected Routes */}
             <Route
               path="/dashboard"
               element={

@@ -159,18 +159,94 @@ export default function AuthPage() {
             left: isLogin ? "50%" : "0",
             width: "50%",
             height: "100%",
-            background: "linear-gradient(135deg, #00ff7f 0%, #00cc66 100%)",
+            background: "linear-gradient(135deg, #009b4eff 0%, #038343ff 100%)",
             transition: "left 0.6s ease-in-out",
             zIndex: 10,
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
-            // : "60px 40px",
             color: "white",
             textAlign: "center",
+            overflow: "hidden",
           }}
         >
+          {/* Abstract Background Graphics */}
+          <div
+            style={{
+              position: "absolute",
+              top: "-20%",
+              right: "-10%",
+              width: "200px",
+              height: "200px",
+              border: "2px solid rgba(255, 255, 255, 0.25)",
+              borderRadius: "0",
+              transform: "rotate(45deg)",
+              opacity: 0.6,
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              bottom: "-15%",
+              left: "-15%",
+              width: "150px",
+              height: "150px",
+              border: "3px solid rgba(255, 255, 255, 0.3)",
+              borderRadius: "0",
+              transform: "rotate(30deg)",
+              opacity: 0.5,
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              top: "20%",
+              left: "-5%",
+              width: "100px",
+              height: "100px",
+              background: "rgba(255, 255, 255, 0.15)",
+              transform: "rotate(60deg)",
+              opacity: 0.7,
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              bottom: "30%",
+              right: "-8%",
+              width: "80px",
+              height: "80px",
+              border: "2px solid rgba(255, 255, 255, 0.35)",
+              transform: "rotate(15deg)",
+              opacity: 0.6,
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              top: "10%",
+              right: "20%",
+              width: "60px",
+              height: "60px",
+              background: "rgba(255, 255, 255, 0.1)",
+              transform: "rotate(75deg)",
+              opacity: 0.5,
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              bottom: "10%",
+              left: "15%",
+              width: "40px",
+              height: "40px",
+              border: "1px solid rgba(255, 255, 255, 0.4)",
+              transform: "rotate(90deg)",
+              opacity: 0.8,
+            }}
+          />
+          
           <div
             style={{
               width: "80px",
@@ -182,6 +258,8 @@ export default function AuthPage() {
               justifyContent: "center",
               marginBottom: "24px",
               backdropFilter: "blur(10px)",
+              position: "relative",
+              zIndex: 2,
             }}
           >
             <BarChart3 size={40} color="white" />
@@ -197,7 +275,7 @@ export default function AuthPage() {
               letterSpacing: "1px",
             }}
           >
-            {isLogin ? "New Here?" : "Welcome Back!"}
+            {isLogin ? "New to Trading Hub?" : "Welcome Back!"}
           </h2>
 
           <p
@@ -288,7 +366,7 @@ export default function AuthPage() {
                   padding: "12px",
                   backgroundColor: "rgba(239, 68, 68, 0.1)",
                   border: "1px solid rgba(239, 68, 68, 0.3)",
-                  borderRadius: "8px",
+                  borderRadius: "0",
                   color: "#fca5a5",
                   fontSize: "13px",
                   marginBottom: "20px",
@@ -327,21 +405,21 @@ export default function AuthPage() {
                   name="email"
                   value={formData.email}
                   onChange={handleInputChange}
-                  placeholder="you@example.com"
+                  placeholder="username@email.com"
                   style={{
                     width: "100%",
                     padding: "12px 12px 12px 40px",
-                    backgroundColor: "#0f172a",
-                    border: "1px solid #334155",
-                    borderRadius: "8px",
+                    backgroundColor: "rgba(0, 20, 0, 0.6)",
+                    border: "1px solid rgba(0, 255, 127, 0.3)",
+                    borderRadius: "0",
                     color: "#e2e8f0",
                     fontSize: "14px",
                     outline: "none",
                     transition: "border-color 0.2s",
                     boxSizing: "border-box",
                   }}
-                  onFocus={(e) => (e.target.style.borderColor = "#3b82f6")}
-                  onBlur={(e) => (e.target.style.borderColor = "#334155")}
+                  onFocus={(e) => (e.target.style.borderColor = "#1a4d3a")}
+                  onBlur={(e) => (e.target.style.borderColor = "rgba(0, 255, 127, 0.3)")}
                 />
               </div>
             </div>
@@ -379,17 +457,17 @@ export default function AuthPage() {
                   style={{
                     width: "100%",
                     padding: "12px 40px",
-                    backgroundColor: "#0f172a",
-                    border: "1px solid #334155",
-                    borderRadius: "8px",
+                    backgroundColor: "rgba(0, 20, 0, 0.6)",
+                    border: "1px solid rgba(0, 255, 127, 0.3)",
+                    borderRadius: "0",
                     color: "#e2e8f0",
                     fontSize: "14px",
                     outline: "none",
                     transition: "border-color 0.2s",
                     boxSizing: "border-box",
                   }}
-                  onFocus={(e) => (e.target.style.borderColor = "#3b82f6")}
-                  onBlur={(e) => (e.target.style.borderColor = "#334155")}
+                  onFocus={(e) => (e.target.style.borderColor = "#1a4d3a")}
+                  onBlur={(e) => (e.target.style.borderColor = "rgba(0, 255, 127, 0.3)")}
                 />
                 <button
                   type="button"
@@ -420,9 +498,9 @@ export default function AuthPage() {
               style={{
                 width: "100%",
                 padding: "14px",
-                backgroundColor: "#3b82f6",
+                backgroundColor: "#029e65ff",
                 border: "none",
-                borderRadius: "8px",
+                borderRadius: "0",
                 color: "white",
                 fontSize: "15px",
                 fontWeight: "600",
@@ -432,11 +510,11 @@ export default function AuthPage() {
               }}
               onMouseEnter={(e) => {
                 if (!isLoading)
-                  e.currentTarget.style.backgroundColor = "#2563eb";
+                  e.currentTarget.style.backgroundColor = "#027444ff";
               }}
               onMouseLeave={(e) => {
                 if (!isLoading)
-                  e.currentTarget.style.backgroundColor = "#3b82f6";
+                  e.currentTarget.style.backgroundColor = "#029e65ff";
               }}
             >
               {isLoading ? "Signing In..." : "Sign In"}
@@ -488,7 +566,7 @@ export default function AuthPage() {
                   padding: "12px",
                   backgroundColor: "rgba(239, 68, 68, 0.1)",
                   border: "1px solid rgba(239, 68, 68, 0.3)",
-                  borderRadius: "8px",
+                  borderRadius: "0",
                   color: "#fca5a5",
                   fontSize: "13px",
                   marginBottom: "16px",
@@ -531,17 +609,17 @@ export default function AuthPage() {
                   style={{
                     width: "100%",
                     padding: "12px 12px 12px 40px",
-                    backgroundColor: "#0f172a",
-                    border: "1px solid #334155",
-                    borderRadius: "8px",
+                    backgroundColor: "rgba(0, 20, 0, 0.6)",
+                    border: "1px solid rgba(0, 255, 127, 0.3)",
+                    borderRadius: "0",
                     color: "#e2e8f0",
                     fontSize: "14px",
                     outline: "none",
                     transition: "border-color 0.2s",
                     boxSizing: "border-box",
                   }}
-                  onFocus={(e) => (e.target.style.borderColor = "#3b82f6")}
-                  onBlur={(e) => (e.target.style.borderColor = "#334155")}
+                  onFocus={(e) => (e.target.style.borderColor = "#1a4d3a")}
+                  onBlur={(e) => (e.target.style.borderColor = "rgba(0, 255, 127, 0.3)")}
                 />
               </div>
             </div>
@@ -575,21 +653,21 @@ export default function AuthPage() {
                   name="email"
                   value={formData.email}
                   onChange={handleInputChange}
-                  placeholder="you@example.com"
+                  placeholder="username@email.com"
                   style={{
                     width: "100%",
                     padding: "12px 12px 12px 40px",
-                    backgroundColor: "#0f172a",
-                    border: "1px solid #334155",
-                    borderRadius: "8px",
+                    backgroundColor: "rgba(0, 20, 0, 0.6)",
+                    border: "1px solid rgba(0, 255, 127, 0.3)",
+                    borderRadius: "0",
                     color: "#e2e8f0",
                     fontSize: "14px",
                     outline: "none",
                     transition: "border-color 0.2s",
                     boxSizing: "border-box",
                   }}
-                  onFocus={(e) => (e.target.style.borderColor = "#3b82f6")}
-                  onBlur={(e) => (e.target.style.borderColor = "#334155")}
+                  onFocus={(e) => (e.target.style.borderColor = "#1a4d3a")}
+                  onBlur={(e) => (e.target.style.borderColor = "rgba(0, 255, 127, 0.3)")}
                 />
               </div>
             </div>
@@ -627,17 +705,17 @@ export default function AuthPage() {
                   style={{
                     width: "100%",
                     padding: "12px 40px",
-                    backgroundColor: "#0f172a",
-                    border: "1px solid #334155",
-                    borderRadius: "8px",
+                    backgroundColor: "rgba(0, 20, 0, 0.6)",
+                    border: "1px solid rgba(0, 255, 127, 0.3)",
+                    borderRadius: "0",
                     color: "#e2e8f0",
                     fontSize: "14px",
                     outline: "none",
                     transition: "border-color 0.2s",
                     boxSizing: "border-box",
                   }}
-                  onFocus={(e) => (e.target.style.borderColor = "#3b82f6")}
-                  onBlur={(e) => (e.target.style.borderColor = "#334155")}
+                  onFocus={(e) => (e.target.style.borderColor = "#1a4d3a")}
+                  onBlur={(e) => (e.target.style.borderColor = "rgba(0, 255, 127, 0.3)")}
                 />
                 <button
                   type="button"
@@ -694,17 +772,17 @@ export default function AuthPage() {
                   style={{
                     width: "100%",
                     padding: "12px 40px",
-                    backgroundColor: "#0f172a",
-                    border: "1px solid #334155",
-                    borderRadius: "8px",
+                    backgroundColor: "rgba(0, 20, 0, 0.6)",
+                    border: "1px solid rgba(0, 255, 127, 0.3)",
+                    borderRadius: "0",
                     color: "#e2e8f0",
                     fontSize: "14px",
                     outline: "none",
                     transition: "border-color 0.2s",
                     boxSizing: "border-box",
                   }}
-                  onFocus={(e) => (e.target.style.borderColor = "#3b82f6")}
-                  onBlur={(e) => (e.target.style.borderColor = "#334155")}
+                  onFocus={(e) => (e.target.style.borderColor = "#1a4d3a")}
+                  onBlur={(e) => (e.target.style.borderColor = "rgba(0, 255, 127, 0.3)")}
                 />
               </div>
             </div>
@@ -716,9 +794,9 @@ export default function AuthPage() {
               style={{
                 width: "100%",
                 padding: "14px",
-                backgroundColor: "#3b82f6",
+                backgroundColor: "#029e65ff",
                 border: "none",
-                borderRadius: "8px",
+                borderRadius: "0",
                 color: "white",
                 fontSize: "15px",
                 fontWeight: "600",
@@ -728,11 +806,11 @@ export default function AuthPage() {
               }}
               onMouseEnter={(e) => {
                 if (!isLoading)
-                  e.currentTarget.style.backgroundColor = "#2563eb";
+                  e.currentTarget.style.backgroundColor = "#00784cff";
               }}
               onMouseLeave={(e) => {
                 if (!isLoading)
-                  e.currentTarget.style.backgroundColor = "#3b82f6";
+                  e.currentTarget.style.backgroundColor = "#029e65ff";
               }}
             >
               {isLoading ? "Creating Account..." : "Sign Up"}
