@@ -1,7 +1,7 @@
-# 🚀 Features Shipped: Liquidity Gaps & Spoofing Detection
+# 🚀 Features Shipped: Market Analytics & Trading Reports
 
 ## Overview
-Successfully implemented and shipped two critical market microstructure features with comprehensive backend analytics and rich frontend visualizations.
+Successfully implemented comprehensive market microstructure features with advanced analytics, real-time visualizations, and automated trading report generation system.
 
 ## ✅ Feature C: Liquidity Gaps Detection
 
@@ -48,6 +48,42 @@ Successfully implemented and shipped two critical market microstructure features
 - ✅ Side-specific detection (BID/ASK)
 - ✅ Risk zone visualization (Critical >70%, High >50%, Medium >30%)
 - ✅ Event history tracking with decay
+
+## ✅ Feature E: CSV Reports & Trading Analytics System
+
+### Backend Implementation
+- **Automatic CSV Generation**: Creates detailed execution logs when trading engine stops
+- **Cloud Storage Integration**: AWS S3 upload with local fallback
+- **Statistical Analysis**: Real-time calculation of P&L, win rates, trade counts
+- **Session Tracking**: Individual session management with unique identifiers
+- **API Endpoints**: RESTful endpoints for report listing and downloads
+
+### Frontend Implementation
+- **Reports Page**: Comprehensive dashboard with cyber-finance theme
+- **Statistics Dashboard**: Aggregate metrics across all trading sessions
+- **Download System**: Secure CSV file downloads with real-time updates
+- **Navigation Integration**: Seamless sidebar integration with FileText icon
+
+### Key Features
+- ✅ **Automatic Report Generation**: CSV created on engine stop
+- ✅ **Real Execution Logs**: Captures exact data from MarketPredict interface
+- ✅ **Cloud Storage**: S3 integration with secure file management
+- ✅ **Statistical Analysis**: P&L, win rates, session duration calculation
+- ✅ **User Interface**: Elegant reports page with real-time data
+- ✅ **Download Functionality**: Secure CSV downloads with validation
+- ✅ **Session Management**: Individual tracking per trading session
+
+### CSV File Format
+```csv
+id,timestamp,side,price,size,type,pnl,confidence
+1,2024-01-15T14:30:00,BUY,45250.00,1.0,ENTRY,0.0,0.85
+2,2024-01-15T14:35:00,SELL,45350.00,1.0,EXIT,100.0,0
+```
+
+### API Endpoints
+- `GET /reports` - List all generated reports with statistics
+- `GET /reports/download/{filename}` - Download specific CSV file
+- `POST /strategy/{session_id}/stop` - Stop engine and generate report
 
 ## 🎨 Enhanced UI Components
 
